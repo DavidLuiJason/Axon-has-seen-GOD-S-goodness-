@@ -6,6 +6,8 @@ import { createAxonBrain } from '../src/brain/index';
 import { createOrchestrator } from '../src/brain/mind/orchestrator/orchestrator.ts';
 import type { Orchestration, OrchestratorMode } from '../src/brain/mind/orchestrator/orchestrator.ts';
 import { Dictionary } from '../src/brain/dictionary';
+import { numberWords } from '../src/safety/toolVerifiers2.ts';
+import { formGoal, validatePlan } from '../src/brain/mind/plan/plan.ts';
 import { createDictionarySlot } from '../src/brain/knowledge/dictionarySlot';
 
 let n = 0;
@@ -23,7 +25,7 @@ const body = (content: string): string => { const cut = content.indexOf('\n\nRan
 const tally = {
   messages: 0, toolRuns: 0, rechecked: 0, recheckPassed: 0, recheckFailed: 0, recheckUnclear: 0,
   repairKeep: 0, repairRepaired: 0, repairAsk: 0, dialogueAsked: 0, dialogueFilled: 0, dialogueCancelled: 0, dialogueParked: 0,
-  judgmentProceed: 0, judgmentAsk: 0, candidates: 0, shadowSame: 0, shadowTotal: 0,
+  judgmentProceed: 0, judgmentAsk: 0, candidates: 0, shadowSame: 0, shadowTotal: 0, planSteps: 0, foresight: 0,
 };
 const note = (o: Orchestration) => {
   tally.messages++;
@@ -136,6 +138,58 @@ for (const text of ['tell me a joke', 'what is the weather like', 'write me a po
 }
 const o5 = session('on'); await o5.ask({ text: 'tell me a joke', place: 'chat' });
 check(o5.candidates().some((c) => c.kind === 'LESSON'), 'E4-lesson-candidate-kept');
+
+// ---- 5. The other tools: hash, number words, case modes, hex. Each answer is rechecked by its own second path.
+const hashNames: Array<[string, string]> = [['SHA-256', 'sha256'], ['SHA-1', 'sha1'], ['SHA-384', 'sha384'], ['SHA-512', 'sha512'], ['MD5', 'md5']];
+for (let i = 0; i < 10; i++) {
+  const [label, node] = hashNames[i % hashNames.length];
+  const p = phrase(1 + Math.floor(rnd() * 3));
+  const r = await session('on').ask({ text: `calculate checksum of "${p}" using ${label}`, place: 'chat' }); note(r.orchestration); tally.toolRuns++;
+  check(r.reply.source === 'runner:hash-tool' && r.reply.content.includes(createHash(node).update(p, 'utf8').digest('hex')) && r.orchestration.verification?.report.overall === 'PASSED', 'E5-hash-' + label + i);
+}
+for (let i = 0; i < 12; i++) {
+  const value = BigInt(Math.floor(rnd() * 10 ** (1 + (i % 7)))) + 1n;
+  const r = await session('on').ask({ text: `spell the number ${value}`, place: 'chat' }); note(r.orchestration); tally.toolRuns++;
+  check(r.reply.source === 'runner:number-to-words' && body(r.reply.content) === numberWords(value) && r.orchestration.verification?.report.overall === 'PASSED', 'E5-number-' + value);
+}
+const modes = ['uppercase', 'lowercase', 'title case', 'snake case', 'camel case', 'kebab case'];
+for (let i = 0; i < 12; i++) {
+  const r = await session('on').ask({ text: `convert "${phrase(2)}" to ${modes[i % modes.length]}`, place: 'chat' }); note(r.orchestration); tally.toolRuns++;
+  check(r.reply.source === 'runner:case-converter' && r.orchestration.verification?.report.overall === 'PASSED', 'E5-case-' + modes[i % modes.length] + i);
+}
+{
+  const r = await session('on').ask({ text: 'encode "abc" as hex', place: 'chat' }); note(r.orchestration);
+  check(r.reply.source === 'runner:encoder-decoder' && r.orchestration.verification !== null && r.orchestration.verification.report.overall !== 'FAILED', 'E5-hex-not-blocked');
+}
+// ---- 6. A plan of two real steps through the real brain: both answers must be verified before the goal counts.
+{
+  const goal = formGoal({ id: 'g1', statement: 'Count the words, then sort the lines', successKey: 'sorted', successValue: true, maxSteps: 5, constraints: [] });
+  if (!goal.ok) throw new Error('goal');
+  const plan = validatePlan(goal.value, { goalId: 'g1', steps: [
+    { id: 's1', toolId: 'text-counter', input: { text: 'count words in "red blue green"' }, needs: [], expectKey: 'counted', expectValue: true },
+    { id: 's2', toolId: 'sort-lines', input: { text: 'sort these lines: "pear\napple\nfig"' }, needs: ['s1'], expectKey: 'sorted', expectValue: true }] });
+  if (!plan.ok) throw new Error('plan');
+  const run = await session('on').runPlan(goal.value, plan.value);
+  check(run.status === 'DONE' && run.steps.length === 2 && run.steps.every((x) => x.verified) && run.steps[0].source === 'runner:text-counter' && run.steps[1].source === 'runner:sort-lines', 'E6-two-step-plan-reaches-its-goal');
+  tally.planSteps += run.steps.length;
+  const unknown = validatePlan(goal.value, { goalId: 'g1', steps: [{ id: 's1', toolId: 'x', input: { text: 'tell me a joke' }, needs: [], expectKey: 'sorted', expectValue: true }] });
+  if (!unknown.ok) throw new Error('plan2');
+  const stuck = await session('on').runPlan(goal.value, unknown.value);
+  check(stuck.status === 'ASK' && stuck.steps.every((x) => !x.verified), 'E6-a-step-the-brain-cannot-do-asks-the-owner');
+}
+// ---- 7. Look-ahead through the orchestrator.
+{
+  const c = (item: string, state: string) => ({ item, state });
+  const st = (id: string, needs: unknown[], effects: unknown[], reversible: boolean, cost: number) => ({ id, label: id, needs, effects, reversible, cost, chance: { low: 100, high: 100, basis: 'MODEL' } });
+  const sit = { id: 'backup', items: { file: 'present', backup: 'missing', space: 'low' }, rules: [{ id: 'r1', when: [c('file', 'deleted')], then: [c('space', 'ok')] }],
+    steps: [st('delete-file', [c('file', 'present')], [c('file', 'deleted')], false, 1), st('make-backup', [c('file', 'present')], [c('backup', 'made')], true, 2)],
+    goal: [c('space', 'ok')], harms: [{ id: 'data-lost', when: [c('file', 'deleted'), c('backup', 'missing')], severity: 'HIGH' }], maxDepth: 3, maxNodes: 1000 };
+  const o = session('on');
+  const bad = o.foresee(sit, ['delete-file']);
+  const good = o.foresee(sit, ['make-backup', 'delete-file']);
+  check(bad.ok && bad.judgment.verdict === 'WILL_NOT_WORK' && bad.guidance.pushback?.code === 'harm' && good.ok && good.judgment.verdict === 'WORKS', 'E7-look-ahead-warns-before-deleting-without-a-backup');
+  tally.foresight += 2;
+}
 
 console.log(`E2E ${JSON.stringify(tally)}`);
 check(tally.recheckFailed === 0, 'E-no-false-alarm');

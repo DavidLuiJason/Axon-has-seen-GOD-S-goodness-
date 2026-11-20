@@ -47,3 +47,13 @@ export function createCandidateStore() {
     },
   };
 }
+
+/** A place that keeps text by name, like the browser's local storage. */
+export type TextStorage = { getItem(key: string): string | null; setItem(key: string, value: string): void };
+
+export function saveText(storage: TextStorage, key: string, text: string): boolean {
+  try { storage.setItem(key, text); return true; } catch { return false; }
+}
+export function loadText(storage: TextStorage, key: string): string | null {
+  try { return storage.getItem(key); } catch { return null; }
+}

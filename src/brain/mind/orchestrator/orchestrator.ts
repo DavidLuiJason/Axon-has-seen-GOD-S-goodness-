@@ -16,8 +16,21 @@ import type { Judgment } from '../judgment/judge.ts';
 import { emptyDialogue, recordTurn, setPending } from '../dialogue/dialogueState.ts';
 import { livePending } from '../dialogue/dialogueAnswer.ts';
 import { stepDialogue } from '../dialogue/dialogueDriver.ts';
-import { verifyToolReply } from '../../../safety/toolVerifiers.ts';
-import { createCandidateStore } from './candidateStore.ts';
+import { verifyToolReplyFull } from '../../../safety/toolVerifiers2.ts';
+import { createCandidateStore, loadText, saveText } from './candidateStore.ts';
+import type { TextStorage } from './candidateStore.ts';
+import { createPredictionJournal } from './predictionJournal.ts';
+import { runPlan } from './planRunner.ts';
+import type { PlanRun } from './planRunner.ts';
+import { validateSituation } from '../foresight/situation.ts';
+import { lookAhead } from '../foresight/lookahead.ts';
+import { judgeSituation } from '../foresight/verdict.ts';
+import type { SituationJudgment } from '../foresight/verdict.ts';
+import { calibrationReport, widenForDrift } from '../foresight/calibration.ts';
+import type { Bucket } from '../foresight/calibration.ts';
+import { guide } from '../foresight/guidance.ts';
+import type { GuidanceRecord } from '../foresight/guidance.ts';
+import type { Goal, Plan } from '../plan/plan.ts';
 import { CANCEL_REPLY, RESEND_REPLY, TEXT_QUESTION, binderAsked, traceReadsAsRequest, withQuotedText, withStageNote } from './dialogueQuestions.ts';
 
 export type OrchestratorMode = 'off' | 'shadow' | 'on';
@@ -46,6 +59,8 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
   const mode: OrchestratorMode = options.mode ?? 'shadow';
   const memoryAllowed = options.memoryAllowed === true;
   const store = createCandidateStore();
+  const journal = createPredictionJournal();
+  const counts = { messages: 0, repaired: 0, repairAsk: 0, dialogueAsked: 0, dialogueFilled: 0, dialogueCancelled: 0, rechecked: 0, recheckPassed: 0, recheckFailed: 0, recheckUnclear: 0, replyChanged: 0, wouldChange: 0, problems: 0 };
   let dialogue = emptyDialogue();
   let pendingOriginal: string | null = null;
   let turn = 0;
@@ -103,7 +118,7 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
         if (r.ok) repair = r.value; else problems.push('repair refused the input: ' + r.error);
       } catch { problems.push('repair failed'); }
       if (mode === 'on' && repair && repair.verdict === 'ASK' && repair.askQuestion) {
-        return finish(repair, { content: repair.askQuestion, source: 'orchestrator:repair' }, null, request.text, 'none', true, problems);
+        return await finish(repair, { content: repair.askQuestion, source: 'orchestrator:repair' }, null, request.text, 'none', true, problems);
       }
       const repaired = mode === 'on' && repair !== null && repair.verdict === 'REPAIRED';
       effectiveText = repaired && repair ? repair.reading : request.text;
@@ -124,11 +139,11 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
         } else action = 'would-ask';
       }
     }
-    return finish(repair, reply, trace, effectiveText, action, replyChanged, problems);
+    return await finish(repair, reply, trace, effectiveText, action, replyChanged, problems);
   }
 
   // Everything after the brain has answered: re-check a tool answer, judge it, reflect, remember the turn.
-  function finish(repair: RepairResult | null, shown: ReplyLike, trace: unknown, effectiveText: string, action: DialogueAction, changed: boolean, problems: string[]) {
+  async function finish(repair: RepairResult | null, shown: ReplyLike, trace: unknown, effectiveText: string, action: DialogueAction, changed: boolean, problems: string[]) {
     let reply = shown;
     let replyChanged = changed;
     // The brain's own answer is the one that is checked (any note put in front of it is stripped first).
@@ -140,7 +155,7 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     let judgment: Judgment | null = null;
     if (isTool) {
       try {
-        const v = verifyToolReply({ toolId, message: effectiveText, replyContent: rawContent });
+        const v = await verifyToolReplyFull({ toolId, message: effectiveText, replyContent: rawContent });
         const input = {
           clauses: [{ id: 'c1', required: true }],
           steps: [{ clauseId: 'c1', toolId, assumption: ASSUMPTION, reported: rawContent.includes('COMPLETED') ? ('success' as const) : ('failure' as const), output: v.output, check: v.check }],
@@ -175,8 +190,41 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     let outTrace = trace;
     if (verification) outTrace = withStageNote(outTrace, 'verification', 'orchestrator recheck of ' + toolId + ': ' + verification.report.overall + ' (' + verification.note + ')');
     if (action !== 'none') outTrace = withStageNote(outTrace, 'dialogue', 'orchestrator dialogue: ' + action);
+    counts.messages++;
+    if (repair && repair.verdict === 'REPAIRED') counts.repaired++;
+    if (repair && repair.verdict === 'ASK') counts.repairAsk++;
+    if (action === 'asked' || action === 'would-ask') counts.dialogueAsked++;
+    if (action === 'filled') counts.dialogueFilled++;
+    if (action === 'cancelled') counts.dialogueCancelled++;
+    if (verification) { counts.rechecked++; if (verification.report.overall === 'PASSED') counts.recheckPassed++; else if (verification.report.overall === 'FAILED') counts.recheckFailed++; else counts.recheckUnclear++; }
+    if (replyChanged) counts.replyChanged++;
+    if (problems.length > 0) counts.problems++;
     return { reply, trace: outTrace, orchestration: { mode, repair, effectiveText, dialogue: { action }, verification, judgment, reflection, replyChanged, problems } };
   }
+
+  type Foresight = { readonly ok: true; readonly judgment: SituationJudgment; readonly guidance: GuidanceRecord; readonly chanceShown: { low: number; high: number; widened: boolean } | null; readonly predictionId: string | null } | { readonly ok: false; readonly error: string; readonly message: string };
+  let predictions = 0;
+  /** Looks ahead on a situation model: what would happen, the best way, one push-back or question if needed, and a chance that is widened if past predictions drifted. */
+  function foresee(rawSituation: unknown, proposed?: readonly string[]): Foresight {
+    const sit = validateSituation(rawSituation);
+    if (!sit.ok) return sit;
+    const judged = judgeSituation(sit.value, proposed);
+    if (!judged.ok) return judged;
+    const guidance = guide(judged.value, lookAhead(sit.value).chains, proposed ?? null);
+    let shown: { low: number; high: number; widened: boolean } | null = null;
+    let predictionId: string | null = null;
+    if (judged.value.chance) {
+      const report = calibrationReport(journal.list()) ?? [];
+      shown = widenForDrift(judged.value.chance.low, judged.value.chance.high, report);
+      predictions++;
+      predictionId = 'prediction-' + predictions;
+      journal.expect(predictionId, (judged.value.chance.low + judged.value.chance.high) / 2);
+    }
+    return { ok: true, judgment: judged.value, guidance, chanceShown: shown, predictionId };
+  }
+  const calibration = (): Bucket[] => calibrationReport(journal.list()) ?? [];
+  const KEY_CANDIDATES = 'axon.brain.candidates';
+  const KEY_JOURNAL = 'axon.brain.predictions';
 
   return {
     ask,
@@ -184,6 +232,22 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     candidates: () => store.list(),
     exportCandidates: () => store.exportText(),
     importCandidates: (text: string) => store.importText(text),
+    foresee,
+    noteOutcome: (predictionId: string, cameTrue: boolean): boolean => journal.outcome(predictionId, cameTrue),
+    calibration,
+    /** Runs a validated plan; each step's text goes through ask() and counts only when its answer was re-checked and passed. */
+    runPlan: (goal: Goal, plan: Plan): Promise<PlanRun> => runPlan(goal, plan, async (text) => {
+      const r = await ask({ text, place: 'chat' });
+      return { verified: r.orchestration.verification !== null && r.orchestration.verification.report.mayClaimSuccess, source: r.reply.source };
+    }),
+    /** What the orchestrator has seen so far: the numbers that show whether it is safe to switch from shadow to on. */
+    stats: () => ({ ...counts, mode }),
+    saveTo: (storage: TextStorage): boolean => { const a = saveText(storage, KEY_CANDIDATES, store.exportText()); const b = saveText(storage, KEY_JOURNAL, journal.exportText()); return a && b; },
+    loadFrom: (storage: TextStorage): { candidates: boolean; predictions: boolean } => {
+      const c = loadText(storage, KEY_CANDIDATES);
+      const p = loadText(storage, KEY_JOURNAL);
+      return { candidates: c !== null && store.importText(c), predictions: p !== null && journal.importText(p) };
+    },
   };
 }
 

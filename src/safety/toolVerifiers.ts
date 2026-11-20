@@ -41,7 +41,7 @@ export function recount(text: string): { words: number; characters: number; noSp
 }
 
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-function utf8Bytes(s: string): number[] {
+export function utf8Bytes(s: string): number[] {
   const out: number[] = [];
   for (const ch of s) {
     const c = ch.codePointAt(0) as number;

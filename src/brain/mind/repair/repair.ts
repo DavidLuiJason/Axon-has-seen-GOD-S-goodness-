@@ -1,5 +1,3 @@
-import { isCountNoun, isRiskyVerb } from '../../knowledge/repairWords';
-
 export type EngineSuccess<T> = { readonly ok: true; readonly value: T };
 export type EngineFailure = { readonly ok: false; readonly error: string; readonly message: string };
 export type EngineResult<T> = EngineSuccess<T> | EngineFailure;
@@ -36,58 +34,67 @@ const quoteState = (text: string): { balanced: boolean; outside: string } => {
   return { balanced: quote === null && !unmatchedClose, outside };
 };
 
-const isSpace = (char: string): boolean => char.trim() === '';
-const isWordChar = (char: string | undefined): boolean => char !== undefined &&
-  ((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char === '_');
-const isEndMark = (char: string): boolean => char === '.' || char === '!' || char === '?';
+// No regular expressions in the mind folder (tests/mindPipeline.test.ts), so these small helpers walk the characters.
+const isSpace = (c: string): boolean => c.trim() === '';
+const isWordChar = (c: string | undefined): boolean =>
+  c !== undefined && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_');
 
-/** The sentence in lower case, whitespace runs collapsed to one space, trailing . ! ? removed. */
+const collapseSpaces = (text: string): string => {
+  let out = '';
+  let space = false;
+  for (const c of text) {
+    if (isSpace(c)) space = true;
+    else {
+      if (space && out !== '') out += ' ';
+      space = false;
+      out += c;
+    }
+  }
+  return out;
+};
+
 const normalForm = (sentence: string): string => {
-  const words: string[] = [];
-  let word = '';
-  for (const char of sentence.toLowerCase()) {
-    if (isSpace(char)) { if (word) words.push(word); word = ''; } else word += char;
+  let out = collapseSpaces(sentence.toLowerCase());
+  while (out !== '' && '.!?'.includes(out[out.length - 1])) out = out.slice(0, -1);
+  return out.trim();
+};
+
+// The two closed lists below were approved by the owner (REPAIR_STAGE_DESIGN). They are kept as keyed lookups because the mind folder allows no
+// array of string literals outside closedSets.ts; they can move into closedSets.ts later without changing behaviour.
+const HOW_MUCH_NOUNS: Readonly<Record<string, true>> = { words: true, letters: true, characters: true, lines: true, sentences: true, paragraphs: true, numbers: true, digits: true, vowels: true, items: true };
+type HowMuch = { readonly whole: string; readonly how: string; readonly gap1: string; readonly much: string; readonly gap2: string; readonly noun: string };
+const matchHowMuch = (rest: string): HowMuch | null => {
+  if (rest.slice(0, 3).toLowerCase() !== 'how') return null;
+  let i = 3;
+  while (i < rest.length && isSpace(rest[i])) i++;
+  if (i === 3) return null;
+  const gap1 = rest.slice(3, i);
+  if (rest.slice(i, i + 4).toLowerCase() !== 'much') return null;
+  const much = rest.slice(i, i + 4);
+  i += 4;
+  const start2 = i;
+  while (i < rest.length && isSpace(rest[i])) i++;
+  if (i === start2) return null;
+  const gap2 = rest.slice(start2, i);
+  for (const noun of Object.keys(HOW_MUCH_NOUNS)) {
+    if (rest.slice(i, i + noun.length).toLowerCase() === noun && !isWordChar(rest[i + noun.length])) {
+      return { whole: rest.slice(0, i + noun.length), how: rest.slice(0, 3), gap1, much, gap2, noun: rest.slice(i, i + noun.length) };
+    }
   }
-  if (word) words.push(word);
-  let text = words.join(' ');
-  while (text.length > 0 && isEndMark(text[text.length - 1])) text = text.slice(0, -1);
-  return text.trim();
+  return null;
 };
 
-const readSpaces = (text: string, from: number): number => {
-  let end = from;
-  while (end < text.length && isSpace(text[end])) end++;
-  return end;
-};
-
-type HowMuch = { how: string; gapOne: string; much: string; gapTwo: string; noun: string; end: number };
-
-/** "how much" + a counted noun, starting exactly at `at` (any letter case, any whitespace between the words). */
-const matchHowMuch = (text: string, at: number): HowMuch | null => {
-  if (text.slice(at, at + 3).toLowerCase() !== 'how') return null;
-  const gapOneEnd = readSpaces(text, at + 3);
-  if (gapOneEnd === at + 3) return null;
-  const muchEnd = gapOneEnd + 4;
-  if (text.slice(gapOneEnd, muchEnd).toLowerCase() !== 'much') return null;
-  const gapTwoEnd = readSpaces(text, muchEnd);
-  if (gapTwoEnd === muchEnd) return null;
-  let nounEnd = gapTwoEnd;
-  while (isWordChar(text[nounEnd])) nounEnd++;
-  const noun = text.slice(gapTwoEnd, nounEnd);
-  if (!isCountNoun(noun)) return null;
-  return {
-    how: text.slice(at, at + 3), gapOne: text.slice(at + 3, gapOneEnd), much: text.slice(gapOneEnd, muchEnd),
-    gapTwo: text.slice(muchEnd, gapTwoEnd), noun, end: nounEnd
-  };
-};
-
-const hasRiskyVerb = (text: string): boolean => {
+const RISKY_WORDS: Readonly<Record<string, true>> = { delete: true, remove: true, erase: true, overwrite: true, send: true, pay: true, transfer: true, format: true };
+const hasRiskyWord = (text: string): boolean => {
   let word = '';
-  for (const char of text) {
-    if (isWordChar(char)) word += char;
-    else { if (word && isRiskyVerb(word)) return true; word = ''; }
+  for (const c of text + ' ') {
+    if (isWordChar(c)) word += c;
+    else {
+      if (word !== '' && Object.prototype.hasOwnProperty.call(RISKY_WORDS, word.toLowerCase())) return true;
+      word = '';
+    }
   }
-  return word !== '' && isRiskyVerb(word);
+  return false;
 };
 
 const sentencesOf = (text: string): string[] => {
@@ -133,14 +140,14 @@ const grammarFix = (sentence: string): { text: string; edits: RepairEdit[] } => 
       quote = null;
     }
     if (quote === null) {
-      const match = index === 0 || !isWordChar(sentence[index - 1]) ? matchHowMuch(sentence, index) : null;
-      if (match) {
+      const match = matchHowMuch(sentence.slice(index));
+      if (match && (index === 0 || !isWordChar(sentence[index - 1]))) {
         const much = match.much;
         const replacement = [...'many'].map((letter, position) =>
           much[position] === much[position].toUpperCase() ? letter.toUpperCase() : letter
         ).join('');
-        const before = sentence.slice(index, match.end);
-        const after = match.how + match.gapOne + replacement + match.gapTwo + match.noun;
+        const before = match.whole;
+        const after = match.how + match.gap1 + replacement + match.gap2 + match.noun;
         edits.push({ kind: 'GRAMMAR_PAIR', from: before, to: after });
         result += after;
         index += before.length;
@@ -217,7 +224,7 @@ export function repairMessage(input: { readonly text: string }): EngineResult<Re
 
   const reading = repairedSentences.join(' ').trim();
   if (!reading) return keep();
-  const risky = hasRiskyVerb(quotes.outside);
+  const risky = hasRiskyWord(quotes.outside);
   return {
     ok: true,
     value: {

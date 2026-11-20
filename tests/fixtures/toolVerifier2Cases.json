@@ -1,0 +1,767 @@
+[
+  {
+    "id": "H01_sha256_abc",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"abc\" using SHA-256",
+      "replyContent": "SHA-256 digest: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "SHA-256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "SHA-256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      },
+      "note": "hashed again from the quoted text"
+    }
+  },
+  {
+    "id": "H02_md5_abc",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"abc\" using MD5",
+      "replyContent": "MD5 digest: 900150983cd24fb0d6963f7d28e17f72\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "MD5:900150983cd24fb0d6963f7d28e17f72",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "MD5:900150983cd24fb0d6963f7d28e17f72"
+      },
+      "note": "hashed again from the quoted text"
+    }
+  },
+  {
+    "id": "H03_sha1_abc",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"abc\" using SHA-1",
+      "replyContent": "SHA-1 digest: a9993e364706816aba3e25717850c26c9cd0d89d\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "SHA-1:a9993e364706816aba3e25717850c26c9cd0d89d",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "SHA-1:a9993e364706816aba3e25717850c26c9cd0d89d"
+      },
+      "note": "hashed again from the quoted text"
+    }
+  },
+  {
+    "id": "H04_sha384_abc",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"abc\" using SHA-384",
+      "replyContent": "SHA-384 digest: cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "SHA-384:cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "SHA-384:cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7"
+      },
+      "note": "hashed again from the quoted text"
+    }
+  },
+  {
+    "id": "H05_sha512_abc",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"abc\" using SHA-512",
+      "replyContent": "SHA-512 digest: ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "SHA-512:ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "SHA-512:ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
+      },
+      "note": "hashed again from the quoted text"
+    }
+  },
+  {
+    "id": "H06_sha256_empty",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"\" using SHA-256",
+      "replyContent": "SHA-256 digest: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "SHA-256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "SHA-256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "note": "hashed again from the quoted text"
+    }
+  },
+  {
+    "id": "H07_md5_empty",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"\" using MD5",
+      "replyContent": "MD5 digest: d41d8cd98f00b204e9800998ecf8427e\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "MD5:d41d8cd98f00b204e9800998ecf8427e",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "MD5:d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "note": "hashed again from the quoted text"
+    }
+  },
+  {
+    "id": "H08_tampered",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"abc\" using SHA-256",
+      "replyContent": "SHA-256 digest: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ae\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "SHA-256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ae",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "SHA-256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      },
+      "note": "hashed again from the quoted text"
+    }
+  },
+  {
+    "id": "H09_uppercase_hex_ok",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"abc\" using SHA-256",
+      "replyContent": "SHA-256 digest: BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "SHA-256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "SHA-256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      },
+      "note": "hashed again from the quoted text"
+    }
+  },
+  {
+    "id": "H10_utf8",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"héllo wörld\" using SHA-256",
+      "replyContent": "SHA-256 digest: a1003f7d04a4115711d0b48a2eaf1359ce565d2d2a6fd65098dfcffadeeef59f\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "SHA-256:a1003f7d04a4115711d0b48a2eaf1359ce565d2d2a6fd65098dfcffadeeef59f",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "SHA-256:a1003f7d04a4115711d0b48a2eaf1359ce565d2d2a6fd65098dfcffadeeef59f"
+      },
+      "note": "hashed again from the quoted text"
+    }
+  },
+  {
+    "id": "H11_md5_cjk",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"日本語\" using MD5",
+      "replyContent": "MD5 digest: 00110af8b4393ef3f72c50be5b332bec\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "MD5:00110af8b4393ef3f72c50be5b332bec",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "MD5:00110af8b4393ef3f72c50be5b332bec"
+      },
+      "note": "hashed again from the quoted text"
+    }
+  },
+  {
+    "id": "H12_unknown_algorithm",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"abc\" using CRC32",
+      "replyContent": "CRC32 digest: 352441c2\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "CRC32:352441c2",
+      "check": null,
+      "note": "this platform cannot compute CRC32 here"
+    }
+  },
+  {
+    "id": "H13_no_digest",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"abc\" using SHA-256",
+      "replyContent": "nothing here\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "the reply does not show a digest"
+    }
+  },
+  {
+    "id": "H14_not_task_format",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of \"abc\" using SHA-256",
+      "replyContent": "SHA-256 digest: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "the reply is not in the expected format"
+    }
+  },
+  {
+    "id": "H15_no_quote",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "calculate checksum of abc using SHA-256",
+      "replyContent": "SHA-256 digest: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "no quoted text in the message to recheck against"
+    }
+  },
+  {
+    "id": "H16_two_quotes",
+    "input": {
+      "toolId": "hash-tool",
+      "message": "checksum of \"a\" and \"b\"",
+      "replyContent": "SHA-256 digest: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "more than one quoted text, so it is unclear which one the tool used"
+    }
+  },
+  {
+    "id": "N01_twelve",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 12",
+      "replyContent": "twelve\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "twelve",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "twelve"
+      },
+      "note": "read the words back into a number"
+    }
+  },
+  {
+    "id": "N02_big",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 1234567",
+      "replyContent": "one million two hundred thirty-four thousand five hundred sixty-seven\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "one million two hundred thirty-four thousand five hundred sixty-seven",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "one million two hundred thirty-four thousand five hundred sixty-seven"
+      },
+      "note": "read the words back into a number"
+    }
+  },
+  {
+    "id": "N03_zero",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 0",
+      "replyContent": "zero\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "zero",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "zero"
+      },
+      "note": "read the words back into a number"
+    }
+  },
+  {
+    "id": "N04_and_style_accepted",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 101",
+      "replyContent": "one hundred and one\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "one hundred and one",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "one hundred and one"
+      },
+      "note": "read the words back into a number"
+    }
+  },
+  {
+    "id": "N05_wrong_number",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 12",
+      "replyContent": "thirteen\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "thirteen",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "twelve"
+      },
+      "note": "read the words back into a number"
+    }
+  },
+  {
+    "id": "N06_two_numbers",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell 12 and 13",
+      "replyContent": "twelve\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "no single whole number in the message to recheck against"
+    }
+  },
+  {
+    "id": "N07_no_number",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell it out",
+      "replyContent": "twelve\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "no single whole number in the message to recheck against"
+    }
+  },
+  {
+    "id": "N08_not_words",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 12",
+      "replyContent": "hello\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "hello",
+      "check": null,
+      "note": "the reply is not number words that can be read back"
+    }
+  },
+  {
+    "id": "N09_out_of_range",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 1000000000000000000",
+      "replyContent": "one quintillion\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "that number is outside the range that can be rechecked"
+    }
+  },
+  {
+    "id": "N10_twenty_one",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 21",
+      "replyContent": "twenty-one\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "twenty-one",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "twenty-one"
+      },
+      "note": "read the words back into a number"
+    }
+  },
+  {
+    "id": "N11_not_task_format",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 12",
+      "replyContent": "twelve"
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "the reply is not in the expected format"
+    }
+  },
+  {
+    "id": "N12_comma_number_unclear",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 1,000",
+      "replyContent": "one thousand\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "no single whole number in the message to recheck against"
+    }
+  },
+  {
+    "id": "N13_trailing_period",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 12.",
+      "replyContent": "twelve\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "twelve",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "twelve"
+      },
+      "note": "read the words back into a number"
+    }
+  },
+  {
+    "id": "N14_negative_unclear",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number -5",
+      "replyContent": "minus five\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "no single whole number in the message to recheck against"
+    }
+  },
+  {
+    "id": "N15_wrong_but_other_style",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 1001",
+      "replyContent": "one thousand two\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "one thousand two",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "one thousand one"
+      },
+      "note": "read the words back into a number"
+    }
+  },
+  {
+    "id": "N16_thousand_boundary",
+    "input": {
+      "toolId": "number-to-words",
+      "message": "spell the number 1000",
+      "replyContent": "one thousand\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "one thousand",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "one thousand"
+      },
+      "note": "read the words back into a number"
+    }
+  },
+  {
+    "id": "C01_upper",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"Hello World\" to uppercase",
+      "replyContent": "HELLO WORLD\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "HELLO WORLD",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "HELLO WORLD"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "C02_lower",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"Hello World\" to lowercase",
+      "replyContent": "hello world\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "hello world",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "hello world"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "C03_snake",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"hello big world\" to snake case",
+      "replyContent": "hello_big_world\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "hello_big_world",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "hello_big_world"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "C04_camel",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"hello big world\" to camel case",
+      "replyContent": "helloBigWorld\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "helloBigWorld",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "helloBigWorld"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "C05_title",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"hello big world\" to title case",
+      "replyContent": "Hello Big World\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "Hello Big World",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "Hello Big World"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "C06_pascal",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"hello big world\" to pascal case",
+      "replyContent": "HelloBigWorld\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "HelloBigWorld",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "HelloBigWorld"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "C07_kebab",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"hello big world\" to kebab case",
+      "replyContent": "hello-big-world\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "hello-big-world",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "hello-big-world"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "C08_constant",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"hello big world\" to constant case",
+      "replyContent": "HELLO_BIG_WORLD\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "HELLO_BIG_WORLD",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "HELLO_BIG_WORLD"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "C09_sentence",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"HELLO. WORLD is big\" to sentence case",
+      "replyContent": "Hello. World is big\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "Hello. World is big",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "Hello. World is big"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "C10_no_mode_matches",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"Hello World\" to uppercase",
+      "replyContent": "hxllo world\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "hxllo world",
+      "check": null,
+      "note": "the answer does not match any mode this check knows, so it is left unverified"
+    }
+  },
+  {
+    "id": "C11_nonascii_upper",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"héllo\" to uppercase",
+      "replyContent": "HÉLLO\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "HÉLLO",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "HÉLLO"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "C12_nonascii_snake_unverified",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"héllo w\" to snake case",
+      "replyContent": "h_llo_w\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "h_llo_w",
+      "check": null,
+      "note": "the answer does not match any mode this check knows, so it is left unverified"
+    }
+  },
+  {
+    "id": "C13_camel_split",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"helloWorld\" to snake case",
+      "replyContent": "hello_world\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "hello_world",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "hello_world"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "C14_acronym_split",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"XMLHttp\" to snake case",
+      "replyContent": "xml_http\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "xml_http",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "xml_http"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "C15_no_quote",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert hello to uppercase",
+      "replyContent": "HELLO\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "no quoted text in the message to recheck against"
+    }
+  },
+  {
+    "id": "C16_not_task_format",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \"a\" to uppercase",
+      "replyContent": "A"
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "the reply is not in the expected format"
+    }
+  },
+  {
+    "id": "C17_leading_space_sentence",
+    "input": {
+      "toolId": "case-converter",
+      "message": "convert \" cej8'cJ! bBg\" to sentence case",
+      "replyContent": " cej8'cj! Bbg\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": " cej8'cj! Bbg",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": " cej8'cj! Bbg"
+      },
+      "note": "matches what one of the converter's modes gives for the quoted text"
+    }
+  },
+  {
+    "id": "Z01_text_counter_still_checked",
+    "input": {
+      "toolId": "text-counter",
+      "message": "count words in \"a b\"",
+      "replyContent": "That text has 2 words.\n\nWords: 2\nCharacters: 3 (2 without spaces)\nLetters: 2\nLines: 1\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "W=2;C=3;NS=2;L=2;LN=1",
+      "check": {
+        "kind": "RECOMPUTE",
+        "value": "W=2;C=3;NS=2;L=2;LN=1"
+      },
+      "note": "recounted from the quoted text"
+    }
+  },
+  {
+    "id": "Z02_unknown_tool",
+    "input": {
+      "toolId": "qr-maker",
+      "message": "make a QR code for \"x\"",
+      "replyContent": "QR code made\n\nRan as task task-1: COMPLETED in 0 ms, from your exact input."
+    },
+    "expected": {
+      "output": "",
+      "check": null,
+      "note": "there is no independent check for this tool yet"
+    }
+  }
+]

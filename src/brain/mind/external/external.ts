@@ -35,6 +35,20 @@ export const LIMITS = Object.freeze({ maxParts: 20, maxPartChars: 100000, maxRes
 const fail = (error: string, message: string): EngineFailure => ({ ok: false, error, message });
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+// No regular expressions in the mind folder, so whitespace runs are collapsed by walking the characters.
+const collapseSpaces = (text: string): string => {
+  let out = '';
+  let space = false;
+  for (const c of text) {
+    if (c.trim() === '') space = true;
+    else {
+      if (space && out !== '') out += ' ';
+      space = false;
+      out += c;
+    }
+  }
+  return out;
+};
 
 export function prepareRequest(registry: unknown, request: unknown, secrets: unknown, approved: unknown): EngineResult<PreparedRequest> {
   if (!Array.isArray(registry) || !isObj(request) || !Array.isArray(secrets) || typeof approved !== 'boolean') return fail('bad-input', 'Registry, request, secrets and approval are required.');
@@ -67,20 +81,9 @@ export function receiveResponse(serviceId: unknown, raw: unknown): EngineResult<
   return { ok: true, value: { serviceId, content: raw, trust: 'UNTRUSTED', evidence: 'REPORTED', mayInstructAxon: false } };
 }
 
-/** The answer in lower case with every run of whitespace collapsed to one space (so spacing alone never makes two answers differ). */
-const sameLookingText = (content: string): string => {
-  const words: string[] = [];
-  let word = '';
-  for (const char of content.trim().toLowerCase()) {
-    if (char.trim() === '') { if (word) words.push(word); word = ''; } else word += char;
-  }
-  if (word) words.push(word);
-  return words.join(' ');
-};
-
 // Agreement between AI answers is never proof. It is reported, and "verified" is always false.
 export function summarizeAgreement(results: unknown): EngineResult<Agreement> {
   if (!Array.isArray(results) || results.length < 1 || results.length > 20 || !results.every((r) => isObj(r) && typeof r.content === 'string')) return fail('bad-input', 'Give 1 to 20 results.');
-  const distinct = new Set((results as readonly { content: string }[]).map((r) => sameLookingText(r.content))).size;
+  const distinct = new Set((results as readonly { content: string }[]).map((r) => collapseSpaces(r.content.toLowerCase()))).size;
   return { ok: true, value: { count: results.length, distinct, agree: results.length > 1 && distinct === 1, verified: false, evidence: 'REPORTED' } };
 }

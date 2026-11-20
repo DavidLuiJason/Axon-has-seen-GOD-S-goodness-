@@ -6,6 +6,7 @@ import { deepStrictEqual } from 'node:assert';
 import { createAxonBrain } from '../src/brain/index';
 import { createOrchestrator } from '../src/brain/mind/orchestrator/orchestrator.ts';
 import type { ReplyLike } from '../src/brain/mind/orchestrator/orchestrator.ts';
+import { formGoal, validatePlan } from '../src/brain/mind/plan/plan.ts';
 import { Dictionary } from '../src/brain/dictionary';
 import { createDictionarySlot } from '../src/brain/knowledge/dictionarySlot';
 
@@ -54,8 +55,12 @@ const ask = async (mode: 'off' | 'shadow' | 'on' | undefined, reply: ReplyLike |
   check(j.o.mode === 'shadow' && j.r.orchestration.mode === 'shadow', 'A12_default_is_shadow');
   const k = await ask('on', { content: 'I do not have a way to do that.', source: 'foundation' }, 'hello there');
   check(k.r.orchestration.verification === null && k.r.orchestration.reflection?.candidates.some((c) => c.kind === 'LESSON') === true && !k.r.orchestration.replyChanged, 'A13_foundation_is_a_lesson_not_a_change');
-  const l = await ask('on', { content: ran('HELLO'), source: 'runner:case-converter' }, 'convert "Hello" to uppercase');
-  check(l.r.orchestration.verification?.report.overall === 'UNCLEAR' && l.r.orchestration.verification.report.mayClaimSuccess === false && l.r.reply.content === ran('HELLO'), 'A14_unchecked_tool_is_unclear_not_blocked');
+  const l = await ask('on', { content: ran('QR code made: 21 \u00d7 21 modules'), source: 'runner:qr-maker' }, 'make a QR code for "hello"');
+  check(l.r.orchestration.verification?.report.overall === 'UNCLEAR' && l.r.orchestration.verification.report.mayClaimSuccess === false && l.r.reply.content === ran('QR code made: 21 \u00d7 21 modules'), 'A14_unchecked_tool_is_unclear_not_blocked');
+  const l2 = await ask('on', { content: ran('HELLO'), source: 'runner:case-converter' }, 'convert "Hello" to uppercase');
+  check(l2.r.orchestration.verification?.report.overall === 'PASSED' && l2.r.reply.content === ran('HELLO'), 'A14b_case_converter_answer_is_rechecked');
+  const l3 = await ask('on', { content: ran('hello'), source: 'runner:hash-tool' }, 'calculate checksum of "abc" using SHA-256');
+  check(l3.r.orchestration.verification?.report.overall === 'UNCLEAR', 'A14c_hash_reply_without_digest_is_unclear');
   const m = await ask('on', GOOD, 'count words in "a b" and "c"');
   check(m.r.orchestration.verification?.report.overall === 'UNCLEAR' && same(m.r.reply, GOOD), 'A15_two_quotes_unclear_not_blocked');
   const o = await ask('on', { content: 'That did not work.', source: 'runner:text-counter' }, MSG);
@@ -185,6 +190,73 @@ const ask = async (mode: 'off' | 'shadow' | 'on' | undefined, reply: ReplyLike |
     const off = await createOrchestrator(scripted(base).brain, { mode: 'off' }).ask({ text: 'convert to uppercase', place: 'chat' });
     check(off.reply.source === 'foundation' && off.orchestration.dialogue.action === 'none', 'D22_off_mode_never_asks');
   }
+
+// ---- Part A3: look-ahead (foresee), calibration and widening, stats, saving, and plans through the orchestrated brain (fake brain).
+{
+  const c = (item: string, state: string) => ({ item, state });
+  const stepOf = (id: string, needs: unknown[], effects: unknown[], reversible: boolean, cost: number, chance: unknown) => ({ id, label: id, needs, effects, reversible, cost, chance });
+  const M = (p: number) => ({ low: p, high: p, basis: 'MODEL' });
+  const boulders = { id: 'boulders', items: { foot: 'pinned', stone: 'on-foot', medium: 'still', big: 'still', health: 'ok' },
+    rules: [{ id: 'r1', when: [c('stone', 'left')], then: [c('foot', 'free')] }, { id: 'r2', when: [c('stone', 'left')], then: [c('medium', 'moving')] }, { id: 'r3', when: [c('medium', 'moving')], then: [c('big', 'moving')] }, { id: 'r4', when: [c('big', 'moving')], then: [c('health', 'crushed')] }, { id: 'r5', when: [c('stone', 'right')], then: [c('foot', 'free')] }],
+    steps: [stepOf('push-left', [c('stone', 'on-foot')], [c('stone', 'left')], false, 1, M(100)), stepOf('push-right', [c('stone', 'on-foot')], [c('stone', 'right')], false, 1, M(100))],
+    goal: [c('foot', 'free'), c('health', 'ok')], harms: [{ id: 'h1', when: [c('health', 'crushed')], severity: 'HIGH' }], maxDepth: 3, maxNodes: 1000 };
+  const ninety = { id: 'ninety', items: { job: 'todo' }, rules: [], steps: [stepOf('go', [c('job', 'todo')], [c('job', 'done')], true, 1, M(90))], goal: [c('job', 'done')], harms: [], maxDepth: 2, maxNodes: 100 };
+  const o = createOrchestrator(fake(GOOD).brain, { mode: 'shadow' });
+  const a = o.foresee(boulders, ['push-left']);
+  check(a.ok && a.judgment.verdict === 'WILL_NOT_WORK' && a.guidance.pushback?.code === 'harm' && a.predictionId === 'prediction-1' && a.chanceShown?.low === 100 && a.chanceShown.widened === false, 'F01_foresee_the_boulders');
+  check(a.ok && a.guidance.options[0].isOwnerPlan && a.guidance.options[0].leadsTo === 'HARM' && a.guidance.options[1].leadsTo === 'GOAL', 'F02_the_owners_plan_and_the_better_one');
+  check(same(o.calibration(), []) && o.noteOutcome('prediction-1', false) === true && o.noteOutcome('prediction-1', false) === false && o.noteOutcome('nope', true) === false, 'F03_outcomes_need_a_prediction');
+  check(same(o.calibration(), [{ bucket: 100, called: 1, cameTrue: 0, rate: 0, drifted: false }]), 'F04_calibration_after_one_outcome');
+  const bad = o.foresee({ id: 'x' });
+  check(!bad.ok && bad.error === 'bad-input', 'F05_a_bad_situation_is_refused');
+  const unk = o.foresee({ ...boulders, goal: [c('nope', 'x')] });
+  check(!unk.ok && unk.error === 'unknown-item', 'F06_unknown_items_are_refused');
+  const noProposal = o.foresee(boulders);
+  check(noProposal.ok && noProposal.judgment.verdict === 'WORKS' && noProposal.predictionId === 'prediction-2' && same(noProposal.judgment.chain?.steps, ['push-right']), 'F07_best_way_without_a_proposal');
+  const cant = o.foresee({ ...boulders, maxNodes: 1, steps: [boulders.steps[0], stepOf('wait', [], [c('medium', 'moving')], true, 0, M(100))], harms: [], rules: [] });
+  check(cant.ok && cant.judgment.verdict === 'CANNOT_JUDGE' && cant.predictionId === null && cant.chanceShown === null && same(cant.guidance.question, { about: 'budget', item: null, state: null }), 'F08_an_exhausted_search_says_it_cannot_judge_and_asks_about_the_budget');
+  const stuck = o.foresee({ id: 's', items: { x: 'a' }, rules: [], steps: [stepOf('s', [c('x', 'a')], [c('x', 'b')], true, 1, M(50))], goal: [c('x', 'c')], harms: [], maxDepth: 3, maxNodes: 100 });
+  check(stuck.ok && stuck.judgment.verdict === 'WILL_NOT_WORK' && stuck.chanceShown === null && stuck.predictionId === null && stuck.guidance.pushback?.code === 'no-safe-path', 'F09_no_chance_no_prediction');
+  // drift: ten predictions of 90 percent, five come true; the next 90 percent is shown wider
+  const d = createOrchestrator(fake(GOOD).brain, { mode: 'shadow' });
+  for (let i = 0; i < 10; i++) { const r = d.foresee(ninety); if (r.ok && r.predictionId) d.noteOutcome(r.predictionId, i < 5); }
+  const next = d.foresee(ninety);
+  check(next.ok && next.chanceShown?.widened === true && next.chanceShown.low === 80 && next.chanceShown.high === 100 && d.calibration()[0].drifted === true, 'F10_drifting_chances_are_shown_wider');
+  const fresh = createOrchestrator(fake(GOOD).brain, { mode: 'shadow' }).foresee(ninety);
+  check(fresh.ok && fresh.chanceShown?.widened === false && fresh.chanceShown.low === 90, 'F11_no_history_no_widening');
+  const ranged = createOrchestrator(fake(GOOD).brain, { mode: 'shadow' });
+  const rr = ranged.foresee({ id: 'rg', items: { job: 'todo' }, rules: [], steps: [stepOf('go', [c('job', 'todo')], [c('job', 'done')], true, 1, { low: 40, high: 80, basis: 'HYPOTHESIS' })], goal: [c('job', 'done')], harms: [], maxDepth: 2, maxNodes: 100 });
+  check(rr.ok && rr.chanceShown?.low === 40 && rr.chanceShown.high === 80 && rr.judgment.chance?.basis === 'HYPOTHESIS' && rr.predictionId !== null && ranged.noteOutcome(rr.predictionId, true) && same(ranged.calibration(), [{ bucket: 60, called: 1, cameTrue: 1, rate: 100, drifted: false }]), 'F23_a_hypothesis_range_is_predicted_at_its_midpoint');
+  // stats and saving
+  const st = createOrchestrator(scripted({ [MSG]: { reply: BAD, execution: 'direct lane answered with text-counter', resolution: MATCH }, 'Delete the file. Delete the file.': { reply: FOUNDATION, execution: 'x', resolution: NONE } }).brain, { mode: 'shadow' });
+  await ask2(st, MSG); await ask2(st, 'Delete the file. Delete the file.'); await ask2(st, 'hello');
+  const s1 = st.stats();
+  check(s1.messages === 3 && s1.rechecked === 1 && s1.recheckFailed === 1 && s1.repairAsk === 1 && s1.replyChanged === 0 && s1.mode === 'shadow', 'F12_stats_count_what_happened');
+  check(createOrchestrator(fake(GOOD).brain, { mode: 'on' }).stats().messages === 0, 'F13_stats_start_at_zero');
+  const store = new Map<string, string>();
+  const storage = { getItem: (k: string) => (store.has(k) ? (store.get(k) as string) : null), setItem: (k: string, v: string) => { store.set(k, v); } };
+  st.foresee(ninety);
+  check(st.saveTo(storage) === true && store.size === 2 && st.candidates().length > 0, 'F14_save_candidates_and_predictions');
+  const back = createOrchestrator(fake(GOOD).brain, { mode: 'shadow' });
+  check(same(back.loadFrom(storage), { candidates: true, predictions: true }) && same(back.candidates(), st.candidates()) && back.noteOutcome('prediction-1', true) === true, 'F15_load_restores_both');
+  check(same(createOrchestrator(fake(GOOD).brain).loadFrom({ getItem: () => null, setItem: () => undefined }), { candidates: false, predictions: false }), 'F16_nothing_saved_loads_nothing');
+  check(st.saveTo({ getItem: () => null, setItem: () => { throw new Error('full'); } }) === false, 'F17_a_full_storage_is_reported');
+  check(same(createOrchestrator(fake(GOOD).brain).loadFrom({ getItem: () => 'garbage', setItem: () => undefined }), { candidates: false, predictions: false }), 'F18_garbage_is_refused');
+  check(createOrchestrator(fake(GOOD).brain).loadFrom({ getItem: () => { throw new Error('locked'); }, setItem: () => undefined }).candidates === false, 'F19_a_locked_storage_is_survived');
+  // a plan through the orchestrated fake brain: only verified answers count
+  const goalR = formGoal({ id: 'g', statement: 'Count', successKey: 'counted', successValue: true, maxSteps: 4, constraints: [] });
+  if (!goalR.ok) throw new Error('goal');
+  const planR = validatePlan(goalR.value, { goalId: 'g', steps: [{ id: 's1', toolId: 'text-counter', input: { text: 'count words in "red blue"' }, needs: [], expectKey: 'counted', expectValue: true }] });
+  if (!planR.ok) throw new Error('plan');
+  const good = { content: counter(2, 8, 7, 7, 1), source: 'runner:text-counter', taskId: 'task-1' };
+  const pr = await createOrchestrator(scripted({ 'count words in "red blue"': { reply: good, execution: 'direct lane answered with text-counter', resolution: MATCH } }).brain, { mode: 'on' }).runPlan(goalR.value, planR.value);
+  check(pr.status === 'DONE' && pr.steps.length === 1 && pr.steps[0].verified, 'F20_plan_step_verified_by_the_recheck');
+  const unchecked = { content: ran('QR code made'), source: 'runner:qr-maker', taskId: 'task-1' };
+  const pu = await createOrchestrator(scripted({ 'count words in "red blue"': { reply: unchecked, execution: 'direct lane answered with qr-maker', resolution: MATCH } }).brain, { mode: 'on' }).runPlan(goalR.value, planR.value);
+  check(pu.status === 'ASK' && pu.steps.length === 2 && pu.steps.every((x) => !x.verified), 'F21_an_unchecked_answer_does_not_finish_a_step');
+  const pb = await createOrchestrator(scripted({ 'count words in "red blue"': { reply: BAD, execution: 'direct lane answered with text-counter', resolution: MATCH } }).brain, { mode: 'on' }).runPlan(goalR.value, planR.value);
+  check(pb.status === 'ASK' && pb.steps.every((x) => !x.verified), 'F22_a_wrong_answer_does_not_finish_a_step');
+}
 }
 
 // Set AXON_ORCH_FAST=1 to run only the fake-brain part (a quick check while editing). The normal run does everything.
