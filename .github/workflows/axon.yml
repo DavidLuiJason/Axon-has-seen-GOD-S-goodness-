@@ -1,0 +1,712 @@
+# =====================================================================================
+#  AXON: unpack, check, build.   ONE workflow file. Put it in the repository as
+#  .github/workflows/axon.yml  (add it by hand once; GitHub does not let a workflow
+#  install or change workflow files by itself).
+#
+#  WHAT YOU DO EVERY TIME: drop ONE zip (or several) into the top level of the repository, or
+#  into a folder named uploads. Then wait. A zip named keep-something.zip is never touched.
+#  WHAT IT DOES: starts from the NEWEST commit of the branch (so a re-run of an old run always
+#  builds the latest fixes), finds EVERY zip still waiting (not only the one of this push: GitHub
+#  cancels a queued run when another push arrives, and the old workflow lost those zips), checks
+#  them, unpacks them NEWEST FIRST (a newer zip wins; an older zip never overwrites it), skips
+#  duplicates, commits the result, removes the zips, builds the web app, runs the type check and
+#  the tests, and builds the Android debug APK.
+#  The APK is under  Actions > the run > Artifacts > axon-debug-apk.
+#
+#  WHAT IT RECOGNISES (all of it is listed in the run summary, per zip)
+#   - A zip that is byte for byte identical to one AXON already unpacked (or to another zip waiting now):
+#     reported as DUPLICATE, nothing is merged, it is removed.   Upload it as again-NAME.zip to unpack it anyway.
+#   - A file identical to the one in the repository: reported as IDENTICAL, NOT MERGED, left alone.
+#   - A file that is identical to an OLDER version of the same file in this repository (or a file deleted on
+#     purpose): a STALE COPY. It is NOT applied, because it would undo later work (this is what erased fixes
+#     again and again). A copy is kept in .axon-held/ so nothing is lost.   Upload as force-NAME.zip to apply it anyway.
+#   - A file the zip made from an OLDER copy of the repository's file plus its own edits: it is THREE-WAY MERGED.
+#     Only the zip's own edits are added to the newer file, so later fixes stay (an overwrite erased them again and
+#     again). If the zip and a later change edited the same lines it is a CONFLICT: not applied, the zip's copy is
+#     kept in .axon-held/, reported under NEEDS ATTENTION, no conflict markers are ever written.
+#   - A zip that cannot be unpacked safely: reported as REFUSED, it stays, the other zips still run.
+#   RUN WORKFLOW (Actions tab) also offers: allow_duplicates, allow_stale, and audit_history (lists files
+#   that came in some zip but never reached the repository; restore_lost puts them back, never overwriting).
+#
+#  SWITCHES (edit these two lines on GitHub if you want to change the behaviour)
+#   BUILD_ON_EVERY_PUSH  'true'  = build after every push to main (zip or not; for example from AI Studio)
+#                        'false' = work only when a zip was dropped, when this file changes, or on Run workflow
+#   STRICT_CHECKS        'false' = a failing type check or test is REPORTED but the APK is still built
+#                        'true'  = a failing type check or test stops the run before the APK
+# =====================================================================================
+name: "AXON: unpack, check, build"
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      zip_file:
+        description: 'Optional: path of ONE zip already in the repository (for example uploads/project.zip). Leave empty to unpack every waiting zip (top level or uploads) and build.'
+        required: false
+        default: ''
+      allow_duplicates:
+        description: 'Unpack waiting zips even if an identical zip was already unpacked before.'
+        type: boolean
+        default: false
+      allow_stale:
+        description: 'Apply files that are identical to an OLDER version of the same file (normally held back so later work is not undone).'
+        type: boolean
+        default: false
+      audit_history:
+        description: 'Only check: list files that came in some zip but never reached the repository. Changes nothing (and builds nothing) unless restore_lost is ticked.'
+        type: boolean
+        default: false
+      restore_lost:
+        description: 'With audit_history: put the missing files back (never overwrites a file that exists).'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: axon-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BUILD_ON_EVERY_PUSH: 'true'
+  STRICT_CHECKS: 'false'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  axon:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Get the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 0. Start from the newest commit of the branch
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$GITHUB_REF_NAME"
+          TIP=$(git rev-parse FETCH_HEAD)
+          STARTED=$(git rev-parse HEAD)
+          if [ "$TIP" != "$STARTED" ]; then
+            git reset --hard "$TIP"
+            echo "This run was started by ${STARTED:0:7}, but the newest commit of $GITHUB_REF_NAME is ${TIP:0:7}. Working on the newest one, so an old or re-run run always uses the latest fixes."
+          fi
+          echo "## Commit used: ${TIP:0:7} (the newest on $GITHUB_REF_NAME; this run was started by ${STARTED:0:7})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 0b. Write the unpack tool
+        run: |
+          set -euo pipefail
+          cat > /tmp/axon_unpack.py <<'PYEND'
+          #!/usr/bin/env python3
+          # AXON unpack. Newest zip first. Knows duplicates. Never undoes later work.
+          #   python3 axon_unpack.py unpack /tmp/zips.txt     unpack the listed zips (newest first)
+          #   python3 axon_unpack.py audit                    report (and with RESTORE_LOST=true restore) files lost from old zips
+          import difflib, hashlib, os, stat, subprocess, sys, tempfile, time, zipfile
+          from datetime import datetime, timezone
+          from pathlib import PurePosixPath
+
+          ALLOW_DUP = os.environ.get('ALLOW_DUPLICATES', '') == 'true'
+          ALLOW_STALE = os.environ.get('ALLOW_STALE', '') == 'true'
+          RESTORE = os.environ.get('RESTORE_LOST', '') == 'true'
+
+          SKIP_PREFIX = ('.git/', '.github/workflows/', 'node_modules/', 'public/_axon-source/', '__MACOSX/',
+                         'android/app/build/', 'android/build/', 'android/.gradle/', 'dist/', '.axon-held/')
+          SKIP_NAMES = {'.DS_Store', 'bun.lock', 'bun.lockb', 'Thumbs.db'}
+          PROTECTED = {'tools/guard.mjs', 'tools/files.lock'}
+          MAX_FILES, MAX_BYTES = 25000, 1024 * 1024 * 1024
+          HELD_DIR, HELD_LIMIT = '.axon-held', 20 * 1024 * 1024
+          BOT_SUBJECT = 'AXON: unpack and update'
+          SHOW = 25
+          MERGE_MAX_BYTES, MERGE_MAX_LINES, MERGE_CANDIDATES, MERGE_MIN_SIMILARITY = 2 * 1024 * 1024, 6000, 40, 0.6
+
+
+          class Refuse(Exception):
+              pass
+
+
+          def git(*args):
+              r = subprocess.run(['git', '-c', 'core.quotepath=false'] + list(args), capture_output=True)
+              return r.stdout.decode('utf-8', 'replace') if r.returncode == 0 else ''
+
+
+          def blob_of(data):
+              return hashlib.sha1(b'blob %d\x00' % len(data) + data).hexdigest()
+
+
+          def when(ts):
+              return datetime.fromtimestamp(ts, timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+
+
+          def shown(items):
+              items = list(items)
+              text = ', '.join(items[:SHOW])
+              return text + (' ... and %d more' % (len(items) - SHOW) if len(items) > SHOW else '')
+
+
+          _hist = {}
+
+
+          def history_of(rel):
+              """(set of every blob this path ever had in the repository history, True if it was ever deleted)"""
+              if rel not in _hist:
+                  blobs, deleted = set(), False
+                  for line in git('log', '--format=', '--raw', '--no-abbrev', '--no-renames', '--', rel).splitlines():
+                      if not line.startswith(':'):
+                          continue
+                      f = line.partition('\t')[0].split()
+                      old, new, status = f[2], f[3], f[4]
+                      if set(old) != {'0'}:
+                          blobs.add(old)
+                      if set(new) != {'0'}:
+                          blobs.add(new)
+                      if status.startswith('D'):
+                          deleted = True
+                  _hist[rel] = (blobs, deleted)
+              return _hist[rel]
+
+
+          def zip_history():
+              out = git('log', '--all', '--no-renames', '--diff-filter=AD', '--raw', '--no-abbrev', '--format=@%H|%ct|%s', '--', '*.zip')
+              adds, dels, head = [], [], None
+              for line in out.splitlines():
+                  if line.startswith('@'):
+                      c, t, s = line[1:].split('|', 2)
+                      head = (c, int(t), s)
+                  elif line.startswith(':') and head:
+                      meta, _, path = line.partition('\t')
+                      f = meta.split()
+                      old, new, status = f[2], f[3], f[4]
+                      if status == 'A':
+                          adds.append({'blob': new, 'path': path, 'commit': head[0], 'time': head[1]})
+                      elif status == 'D':
+                          dels.append({'blob': old, 'path': path, 'commit': head[0], 'time': head[1], 'bot': head[2].startswith(BOT_SUBJECT)})
+              return adds, dels
+
+
+          def is_text(data):
+              if b'\x00' in data[:8192]:
+                  return False
+              try:
+                  data.decode('utf-8')
+                  return True
+              except UnicodeDecodeError:
+                  return False
+
+
+          def three_way(rel, current, theirs):
+              """The zip's file was probably made from an OLDER version of this file plus the zip's own edits.
+              Find that older version (the most similar earlier revision) and add ONLY the zip's edits to the newer file.
+              Returns ('merged', bytes, base_commit) | ('conflict', None, base_commit) | None (cannot tell)."""
+              if len(current) > MERGE_MAX_BYTES or len(theirs) > MERGE_MAX_BYTES or not (is_text(current) and is_text(theirs)):
+                  return None
+              their_lines = theirs.decode('utf-8').splitlines()
+              if len(their_lines) > MERGE_MAX_LINES:
+                  return None
+              best = None
+              for commit in git('log', '--format=%H', '--', rel).split()[:MERGE_CANDIDATES]:
+                  r = subprocess.run(['git', 'show', '%s:%s' % (commit, rel)], capture_output=True)
+                  if r.returncode != 0 or not is_text(r.stdout):
+                      continue
+                  ratio = difflib.SequenceMatcher(None, r.stdout.decode('utf-8').splitlines(), their_lines, autojunk=False).ratio()
+                  if best is None or ratio >= best[0]:   # a tie goes to the OLDER revision: the careful choice (a doubtful merge becomes a conflict, never a silent overwrite)
+                      best = (ratio, commit, r.stdout)
+              if best is None or best[0] < MERGE_MIN_SIMILARITY:
+                  return None
+              with tempfile.TemporaryDirectory() as d:
+                  paths = []
+                  for name, content in (('current', current), ('base', best[2]), ('theirs', theirs)):
+                      p = os.path.join(d, name)
+                      with open(p, 'wb') as f:
+                          f.write(content)
+                      paths.append(p)
+                  r = subprocess.run(['git', 'merge-file', '-p'] + paths, capture_output=True)
+              if r.returncode == 0:
+                  return ('merged', r.stdout, best[1])
+              if 0 < r.returncode < 128:
+                  return ('conflict', None, best[1])
+              return None
+
+
+          def read_entries(z):
+              infos = [i for i in z.infolist() if not i.is_dir()]
+              if not infos:
+                  raise Refuse('the zip is empty')
+              if len(infos) > MAX_FILES or sum(i.file_size for i in infos) > MAX_BYTES:
+                  raise Refuse('the zip is larger than the safe limit (25,000 files or 1 GiB)')
+              entries = []
+              for i in infos:
+                  name = i.filename.replace('\\', '/')
+                  parts = PurePosixPath(name).parts
+                  if name.startswith('/') or '..' in parts or not name.strip() or (len(name) > 1 and name[1] == ':'):
+                      raise Refuse('unsafe path in the zip: ' + i.filename)
+                  if stat.S_ISLNK(i.external_attr >> 16):
+                      raise Refuse('the zip contains a symbolic link: ' + i.filename)
+                  entries.append((i, name))
+              names = [n for _, n in entries]
+              if len(set(names)) != len(names):
+                  raise Refuse('the zip contains the same path twice')
+              tops = {n.split('/')[0] for n in names if '/' in n}
+              prefix = ''
+              if len(tops) == 1 and all('/' in n for n in names):
+                  top = next(iter(tops))
+                  if (top + '/package.json') in names:
+                      prefix = top + '/'
+              return entries, prefix
+
+
+          def skipped_path(rel):
+              base = rel.rsplit('/', 1)[-1]
+              return rel.startswith(SKIP_PREFIX) or base in SKIP_NAMES or (base.startswith('.env') and base != '.env.example')
+
+
+          def safe_stem(name):
+              stem = name.rsplit('.', 1)[0]
+              return ''.join(c if (c.isalnum() or c in '-_.') else '_' for c in stem)
+
+
+          def hold(stem, rel, data, budget):
+              if budget[0] + len(data) > HELD_LIMIT:
+                  return False
+              path = os.path.join(HELD_DIR, stem, rel) + '.held'   # a .held suffix: no compiler, test or scanner picks it up
+              os.makedirs(os.path.dirname(path), exist_ok=True)
+              with open(path, 'wb') as f:
+                  f.write(data)
+              budget[0] += len(data)
+              return True
+
+
+          def apply_zip(z, written):
+              r = {'new': [], 'changed': [], 'same': [], 'skipped': [], 'kept_newer': [], 'stale': [], 'merged': [], 'conflict': [], 'held': 0, 'prefix': ''}
+              zf = zipfile.ZipFile(z['path'])
+              entries, prefix = read_entries(zf)
+              r['prefix'] = prefix
+              stem, budget = safe_stem(z['name']), [0]
+              for i, name in entries:
+                  rel = name[len(prefix):]
+                  if skipped_path(rel):
+                      r['skipped'].append(rel)
+                      continue
+                  data = zf.read(i)
+                  exists = os.path.isfile(rel)
+                  current = open(rel, 'rb').read() if exists else None
+                  if rel in PROTECTED and exists and current != data:
+                      r['skipped'].append(rel + ' (protected: differs, kept the repository copy)')
+                      continue
+                  if exists:
+                      if current == data:
+                          r['same'].append(rel)
+                          continue
+                      if not z['allow_stale'] and blob_of(data) in history_of(rel)[0]:
+                          r['stale'].append(rel)
+                          r['held'] += 1 if hold(stem, rel, data, budget) else 0
+                          continue
+                      m = None if z['allow_stale'] else three_way(rel, current, data)
+                      if m and m[0] == 'merged':
+                          if m[1] == current:
+                              r['same'].append(rel + ' (its edits are already in the repository)')
+                              continue
+                          r['merged'].append('%s (older base %s)' % (rel, m[2][:7]))
+                          data = m[1]
+                      elif m and m[0] == 'conflict':
+                          r['conflict'].append('%s (older base %s)' % (rel, m[2][:7]))
+                          r['held'] += 1 if hold(stem, rel, data, budget) else 0
+                          continue
+                      elif rel in written:
+                          r['kept_newer'].append('%s (kept the version of %s)' % (rel, written[rel]))
+                          continue
+                      else:
+                          r['changed'].append(rel)
+                  else:
+                      blobs, deleted = history_of(rel)
+                      if deleted and blobs and not z['allow_stale']:
+                          r['stale'].append(rel + ' (this file was deleted on purpose later)')
+                          r['held'] += 1 if hold(stem, rel, data, budget) else 0
+                          continue
+                      r['new'].append(rel)
+                  d = os.path.dirname(rel)
+                  if d:
+                      os.makedirs(d, exist_ok=True)
+                  with open(rel, 'wb') as f:
+                      f.write(data)
+                  if (i.external_attr >> 16) & 0o111:
+                      os.chmod(rel, 0o755)
+                  written[rel] = z['name']
+              return r
+
+
+          def unpack(list_file):
+              paths = [p.strip() for p in open(list_file).read().splitlines() if p.strip()]
+              adds, dels = zip_history()
+              applied = {}
+              for d in dels:
+                  if d['bot']:
+                      applied.setdefault(d['blob'], d)
+              zips = []
+              for p in paths:
+                  if not os.path.isfile(p):
+                      continue
+                  t = git('log', '-1', '--format=%ct', '--diff-filter=A', '--', p).strip() or git('log', '-1', '--format=%ct', '--', p).strip()
+                  zips.append({'path': p, 'name': os.path.basename(p), 'time': int(t) if t else int(time.time()), 'blob': git('hash-object', '--', p).strip()})
+              zips.sort(key=lambda z: (z['time'], z['name']), reverse=True)
+              print('ORDER (newest first; a newer zip wins, an older zip never overwrites it):')
+              for n, z in enumerate(zips, 1):
+                  print('  %d. %s  (added %s)' % (n, z['name'], when(z['time'])))
+              attention, seen, written = [], {}, {}
+              totals = {'unpacked': 0, 'duplicate': 0, 'refused': 0, 'new': 0, 'changed': 0, 'same': 0, 'stale': 0, 'kept_newer': 0}
+              for n, z in enumerate(zips, 1):
+                  print('------------------------------------------------------------')
+                  print('ZIP %d of %d: %s' % (n, len(zips), z['name']))
+                  twin = seen.get(z['blob'])
+                  old = applied.get(z['blob'])
+                  allow_dup = ALLOW_DUP or z['name'].lower().startswith('again-')
+                  z['allow_stale'] = ALLOW_STALE or z['name'].lower().startswith('force-')
+                  if not allow_dup and (twin or old):
+                      why = ('the same file as the newer waiting zip %s' % twin) if twin else ('a zip AXON already unpacked on %s (commit %s)' % (when(old['time']), old['commit'][:7]))
+                      print('DUPLICATE ZIP: %s is byte for byte identical to %s.' % (z['name'], why))
+                      print('  Nothing was merged. The duplicate is removed. (To unpack it anyway: upload it again named again-%s, or Run workflow with allow_duplicates ticked.)' % z['name'])
+                      os.remove(z['path'])
+                      totals['duplicate'] += 1
+                      continue
+                  seen[z['blob']] = z['name']
+                  try:
+                      r = apply_zip(z, written)
+                  except Refuse as e:
+                      print('UNPACK REFUSED: ' + str(e))
+                      print('  The zip stays in the repository. Nothing from it was used.')
+                      attention.append('%s was refused: %s' % (z['name'], e))
+                      totals['refused'] += 1
+                      continue
+                  except zipfile.BadZipFile as e:
+                      print('UNPACK REFUSED: this is not a readable zip file (%s)' % str(e)[:80])
+                      attention.append('%s is not a readable zip' % z['name'])
+                      totals['refused'] += 1
+                      continue
+                  print('UNPACK OK: %s' % z['path'])
+                  print('  wrapper folder removed: %s' % (r['prefix'] or 'none'))
+                  print('  new files: %d, changed files: %d, merged with newer work: %d, identical (left alone): %d, skipped: %d' % (len(r['new']), len(r['changed']), len(r['merged']), len(r['same']), len(r['skipped'])))
+                  if r['same']:
+                      print('  IDENTICAL, NOT MERGED (the repository already has exactly this): ' + shown(r['same']))
+                  if r['kept_newer']:
+                      print('  KEPT THE NEWER ZIP\'S VERSION (this older zip did not overwrite it): ' + shown(r['kept_newer']))
+                  if r['merged']:
+                      print('  MERGED, NOT OVERWRITTEN (this zip was made from an OLDER version of the file; only its own edits were added to the newer repository version, later fixes kept): ' + shown(r['merged']))
+                  if r['conflict']:
+                      print('  CONFLICT, NOT APPLIED (this zip and a later change edited the same lines; the repository version stays and the zip\'s copy is saved under %s/%s/): ' % (HELD_DIR, safe_stem(z['name'])) + shown(r['conflict']))
+                      print('    A Director must redo these edits on top of the file in the newest zip.')
+                      attention.append('%s: %d file(s) conflict with later changes and were NOT applied: %s' % (z['name'], len(r['conflict']), shown(r['conflict'][:5])))
+                  if r['stale']:
+                      print('  STALE COPY NOT APPLIED (identical to an OLDER version of the file in this repository; applying it would undo later work): ' + shown(r['stale']))
+                      print('    %d of them saved under %s/%s/ so nothing is lost. To apply stale copies on purpose: upload the zip again named force-%s, or Run workflow with allow_stale ticked.' % (r['held'], HELD_DIR, safe_stem(z['name']), z['name']))
+                      attention.append('%s: %d stale file(s) not applied: %s' % (z['name'], len(r['stale']), shown(r['stale'][:5])))
+                  for s in r['skipped'][:12]:
+                      print('  skipped: ' + s)
+                  if len(r['skipped']) > 12:
+                      print('  ... and %d more skipped' % (len(r['skipped']) - 12))
+                  os.remove(z['path'])
+                  totals['unpacked'] += 1
+                  for k in ('new', 'changed', 'same', 'stale', 'kept_newer'):
+                      totals[k] += len(r[k])
+              print('------------------------------------------------------------')
+              print('TOTAL: %d zip(s) unpacked, %d duplicate(s) removed, %d refused; files new %d, changed %d, identical (not merged) %d, stale not applied %d, older-zip versions not used %d' % (
+                  totals['unpacked'], totals['duplicate'], totals['refused'], totals['new'], totals['changed'], totals['same'], totals['stale'], totals['kept_newer']))
+              if attention:
+                  print('NEEDS ATTENTION:')
+                  for a in attention:
+                      print('  - ' + a)
+                      print('::warning::' + a.replace('\n', ' '))
+
+
+          def audit():
+              adds, dels = zip_history()
+              seen, events = set(), []
+              for a in sorted(adds, key=lambda e: e['time'], reverse=True):
+                  name = a['path'].rsplit('/', 1)[-1]
+                  top_or_uploads = '/' not in a['path'] or (a['path'].startswith('uploads/') and a['path'].count('/') == 1)
+                  if a['blob'] in seen or name.lower().startswith('keep-') or not top_or_uploads:
+                      continue
+                  seen.add(a['blob'])
+                  events.append(a)
+              print('AUDIT of %d zip(s) that were ever uploaded (newest first). Looking for files a zip carried that are missing from the repository now.' % len(events))
+              lost, summary = {}, []
+              for n, a in enumerate(events, 1):
+                  tmp = '/tmp/audit-%d.zip' % n
+                  with open(tmp, 'wb') as f:
+                      f.write(subprocess.run(['git', 'cat-file', 'blob', a['blob']], capture_output=True).stdout)
+                  try:
+                      zf = zipfile.ZipFile(tmp)
+                      entries, prefix = read_entries(zf)
+                  except Exception as e:
+                      summary.append('  %s (%s): could not be read (%s)' % (a['path'], when(a['time']), str(e)[:60]))
+                      os.remove(tmp)
+                      continue
+                  present = purposely = 0
+                  mine = []
+                  for i, name in entries:
+                      rel = name[len(prefix):]
+                      if skipped_path(rel):
+                          continue
+                      if os.path.isfile(rel):
+                          present += 1
+                      elif history_of(rel)[1]:
+                          purposely += 1
+                      else:
+                          mine.append(rel)
+                          if rel not in lost:
+                              lost[rel] = (a['path'], zf.read(i), i)
+                  summary.append('  %s (%s): %d file(s) present, %d removed on purpose, %d LOST' % (a['path'], when(a['time']), present, purposely, len(mine)))
+                  zf.close()
+                  os.remove(tmp)
+              print('\n'.join(summary))
+              if not lost:
+                  print('RESULT: nothing is lost. Every file of every zip that was uploaded is in the repository, or was deleted on purpose.')
+                  return
+              print('RESULT: %d file(s) came in a zip, never reached the repository (or were removed without a commit) and are missing now:' % len(lost))
+              for rel, (zname, _, _) in list(lost.items())[:60]:
+                  print('  %s  (newest zip that has it: %s)' % (rel, zname))
+              if not RESTORE:
+                  print('Nothing was changed. To put them back: Run workflow with audit_history and restore_lost ticked.')
+                  return
+              for rel, (zname, data, info) in lost.items():
+                  d = os.path.dirname(rel)
+                  if d:
+                      os.makedirs(d, exist_ok=True)
+                  with open(rel, 'wb') as f:
+                      f.write(data)
+                  if (info.external_attr >> 16) & 0o111:
+                      os.chmod(rel, 0o755)
+              print('RESTORED %d file(s) from the newest zip that had each one (nothing existing was overwritten).' % len(lost))
+
+
+          if __name__ == '__main__':
+              if len(sys.argv) > 1 and sys.argv[1] == 'audit':
+                  audit()
+              else:
+                  unpack(sys.argv[2] if len(sys.argv) > 2 else '/tmp/zips.txt')
+          PYEND
+          python3 -c "import ast; ast.parse(open('/tmp/axon_unpack.py').read())"
+
+      - name: 1. Look for zips to unpack
+        id: find
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          ZIP_INPUT: ${{ inputs.zip_file }}
+          AUDIT: ${{ inputs.audit_history }}
+          RESTORE: ${{ inputs.restore_lost }}
+        run: |
+          set -euo pipefail
+          : > /tmp/zips.txt
+          RUN=false
+          # EVERY zip lying in the top level or in uploads/ that nobody unpacked yet (not only the zip of this push).
+          # Zips named keep-*.zip and zips listed in tools/files.lock are never touched.
+          waiting() {
+          python3 - <<'PYW'
+          import json, os
+          locked = set()
+          try:
+              locked = set(json.load(open('tools/files.lock')).get('files', {}).keys())
+          except Exception:
+              pass
+          for d in ('.', 'uploads'):
+              if os.path.isdir(d):
+                  for n in sorted(os.listdir(d)):
+                      p = n if d == '.' else d + '/' + n
+                      if n.lower().endswith('.zip') and not n.lower().startswith('keep-') and os.path.isfile(p) and p not in locked:
+                          print(p)
+          PYW
+          }
+          if [ "$EVENT" = "workflow_dispatch" ] && [ -n "$ZIP_INPUT" ]; then
+            if [ -f "$ZIP_INPUT" ]; then printf '%s\n' "$ZIP_INPUT" > /tmp/zips.txt
+            else echo "::error::The file '$ZIP_INPUT' is not in the repository."; exit 1; fi
+          else
+            waiting > /tmp/zips.txt
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            RUN=true
+          else
+            if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              git -c core.quotepath=false diff --name-only --diff-filter=AM "$BEFORE" "$GITHUB_SHA" > /tmp/changed.txt
+            else
+              git -c core.quotepath=false show --name-only --diff-filter=AM --format= "$GITHUB_SHA" > /tmp/changed.txt
+            fi
+            if grep -qx '.github/workflows/axon.yml' /tmp/changed.txt; then
+              RUN=true
+              echo "The workflow file itself was added or changed."
+            fi
+            if [ "$BUILD_ON_EVERY_PUSH" = "true" ]; then RUN=true; fi
+          fi
+          sed -i '/^$/d' /tmp/zips.txt
+          sort -u -o /tmp/zips.txt /tmp/zips.txt
+          if [ -s /tmp/zips.txt ]; then RUN=true; fi
+          # "audit only" asks for a report: no build, unless files are to be restored or zips are waiting.
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$AUDIT" = "true" ] && [ "$RESTORE" != "true" ] && [ ! -s /tmp/zips.txt ]; then RUN=false; fi
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$RESTORE" = "true" ]; then RUN=true; fi
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          if [ -s /tmp/zips.txt ]; then
+            echo "Zip(s) to unpack (the tool puts them in order, newest first):"; cat /tmp/zips.txt
+            echo "has_zips=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_zips=false" >> "$GITHUB_OUTPUT"
+            if [ "$RUN" = "true" ]; then echo "No zip to unpack: checking and building what is already here."
+            else echo "Nothing to do in this push. (Set BUILD_ON_EVERY_PUSH to 'true' to build every push.)"; fi
+          fi
+          {
+            echo "## AXON run"
+            if [ -s /tmp/zips.txt ]; then echo "Zip(s) waiting: $(tr '\n' ' ' < /tmp/zips.txt)"; else echo "Zip(s) waiting: none"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 2. Unpack the zips (newest first; duplicates and stale copies recognised)
+        if: steps.find.outputs.has_zips == 'true'
+        env:
+          ALLOW_DUPLICATES: ${{ inputs.allow_duplicates }}
+          ALLOW_STALE: ${{ inputs.allow_stale }}
+        run: |
+          set -euo pipefail
+          python3 /tmp/axon_unpack.py unpack /tmp/zips.txt | tee /tmp/unpack-log.txt
+          { echo; echo '```'; cat /tmp/unpack-log.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 2b. Audit the zips ever uploaded (only when asked)
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_history
+        env:
+          RESTORE_LOST: ${{ inputs.restore_lost }}
+        run: |
+          set -euo pipefail
+          python3 /tmp/axon_unpack.py audit | tee /tmp/audit-log.txt
+          { echo; echo '## Audit of old zips'; echo '```'; cat /tmp/audit-log.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 3. Check the file guard
+        if: steps.find.outputs.run == 'true'
+        run: |
+          if [ ! -f tools/guard.mjs ]; then echo "No guard in this repository: nothing to check."; exit 0; fi
+          for attempt in 1 2 3; do
+            RC=0; OUT=$(node tools/guard.mjs --strict 2>&1) || RC=$?
+            echo "$OUT" | tail -n 12
+            if [ "$RC" -eq 0 ]; then echo "GUARD PASSED"; exit 0; fi
+            BAD=$(echo "$OUT" | grep -E '^[[:space:]]+[a-z]' | grep -v 'missing: \.github/workflows/' || true)
+            if [ -n "$BAD" ]; then
+              echo "GUARD FAILED on real problems (not only old workflow entries). Nothing was committed."
+              exit 1
+            fi
+            echo "$OUT" | grep -E 'missing: \.github/workflows/' | sed 's/.*missing: //' | while read -r P; do
+              echo "The guard still lists $P, but workflow files live in one place now: removing that entry from the lock."
+              node tools/guard.mjs --forget "$P"
+            done
+          done
+          echo "GUARD still failing after 3 attempts."; exit 1
+
+      - name: 4. Save the unpacked result (commit and push)
+        if: steps.find.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "axon-bot"
+          git config user.email "axon-bot@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing changed, nothing to commit."
+          else
+            git commit -q -m "AXON: unpack and update (automatic)"
+            PUSHED=false
+            for attempt in 1 2 3; do
+              if git push origin "HEAD:${GITHUB_REF_NAME}"; then PUSHED=true; break; fi
+              echo "Push refused (attempt $attempt): another change reached ${GITHUB_REF_NAME} while this run was working. Fetching it and trying again."
+              git fetch --no-tags origin "$GITHUB_REF_NAME"
+              if ! git rebase FETCH_HEAD; then
+                git rebase --abort || true
+                echo "::error::Another change touched the same file(s) while this run was working. Nothing was pushed and no conflict markers were written. The zip(s) are still in the repository: start the workflow again (Actions > Run workflow)."
+                exit 1
+              fi
+            done
+            if [ "$PUSHED" != "true" ]; then echo "::error::Could not push after 3 attempts. Start the workflow again."; exit 1; fi
+            echo "Committed and pushed."
+            echo "Saved to the repository: $(git rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Set up Node
+        if: steps.find.outputs.run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 5. Install the app's packages
+        if: steps.find.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          node --version; npm --version; free -m | sed -n 2p
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+          else npm install --no-audit --no-fund; fi
+
+      - name: 6. Build the web app
+        if: steps.find.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          npm run build
+          echo "Web build: OK" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 7. Type check and tests
+        if: steps.find.outputs.run == 'true'
+        run: |
+          set +e
+          FAIL=0
+          npm run lint > /tmp/lint.log 2>&1; L=$?
+          if node -e "process.exit(require('./package.json').scripts['test:all']?0:1)"; then T='npm run test:all'; else T='npm run test:kernel'; fi
+          $T > /tmp/tests.log 2>&1; K=$?
+          { echo
+            if [ $L -eq 0 ]; then echo "Type check: OK"; else echo "Type check: FAILED (last lines below)"; echo '```'; tail -n 25 /tmp/lint.log; echo '```'; fi
+            if [ $K -eq 0 ]; then echo "Tests: OK ($(grep -ciE '^PASS' /tmp/tests.log) test files passed)"; else echo "Tests: FAILED (last lines below)"; echo '```'; grep -E 'FAIL|FAILED|Error' /tmp/tests.log | head -n 12; echo '```'; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          tail -n 4 /tmp/lint.log; tail -n 4 /tmp/tests.log
+          if [ $L -ne 0 ] || [ $K -ne 0 ]; then
+            if [ "$STRICT_CHECKS" = "true" ]; then echo "::error::Type check or tests failed and STRICT_CHECKS is true."; exit 1
+            else echo "::warning::Type check or tests failed. The APK is still built (STRICT_CHECKS is false). See the run summary."; fi
+          fi
+
+      - name: Set up Java 21
+        if: steps.find.outputs.run == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: 8. Signing key (optional)
+        if: steps.find.outputs.run == 'true'
+        env:
+          KEYSTORE_B64: ${{ secrets.AXON_DEBUG_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -n "$KEYSTORE_B64" ]; then
+            mkdir -p "$HOME/.android"
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$HOME/.android/debug.keystore"
+            echo "Signing key: your saved key (the app updates over the installed one)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::No AXON_DEBUG_KEYSTORE_B64 secret: the APK gets a new random key each build, so Android will ask you to uninstall the old Axon before installing."
+            echo "Signing key: NOT SET (fresh key each build; uninstall the old Axon first)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 9. Build the Android debug APK
+        if: steps.find.outputs.run == 'true'
+        env:
+          GRADLE_OPTS: -Dorg.gradle.daemon=false
+        run: |
+          set -euo pipefail
+          [ -d android ] || npx cap add android
+          [ -f scripts/apply-android-overlay.sh ] || { echo "::error::scripts/apply-android-overlay.sh is missing."; exit 1; }
+          bash scripts/apply-android-overlay.sh
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          echo "APK built: $(du -h "$APK" | cut -f1). Download it from Artifacts: axon-debug-apk." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 10. Keep the APK
+        if: steps.find.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: axon-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
