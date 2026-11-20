@@ -89,7 +89,7 @@ const count = (s: string): number => Object.values(map).filter((v) => v === s).l
 // D321-FIX1 (2026-11-11): QR Maker went live (CONNECT2-W3), built -> ready: now 9 / 31 / 18 / 5.
 // D47 (2026-11-17): Screen Reader, AXON Apps and Auto-Clicker added as coming-soon tools: unbuilt 18 -> 21, now 9 / 31 / 21 / 5.
 // TEST-FIX2 (Director, 2026-11-11): was 5 / 35 / 18 / 5. number-to-words, encoder-decoder and hash-tool went live through the brain (CONNECT1-A, switched ON in liveSwitches.ts) and moved built -> ready: 8 / 32 / 18 / 5.
-ok(count('ready') === 9 && count('built') === 33 && count('unbuilt') === 19 && count('left-out') === 5, `status counts 9 / 33 / 19 / 5, got ${count('ready')} / ${count('built')} / ${count('unbuilt')} / ${count('left-out')}`);
+ok(count('ready') === 9 && count('built') === 31 && count('unbuilt') === 21 && count('left-out') === 5, `status counts 9 / 31 / 21 / 5, got ${count('ready')} / ${count('built')} / ${count('unbuilt')} / ${count('left-out')}`);
 ok(map['text-counter'] === 'ready', 'text-counter is ready');
 ok(api.statusMapFrom(facts) !== map, 'each call returns a NEW object');
 const mk = (p: Record<string, unknown>): ToolFact => ({ kind: 'tool', id: 'x', name: 'X', description: 'd', group: 'g', screen: true, chat: 'not-built', leftOut: false, ...p }) as ToolFact;

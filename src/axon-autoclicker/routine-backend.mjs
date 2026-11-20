@@ -17,7 +17,8 @@ export const PROFILES_STORAGE_KEY = 'axon.app-profiles.v1';
 /** Load and save the owner's app names and notes (see axon-apps/app-profiles.mjs) under their own key. */
 export function createProfilesPersistence({ storage = globalThis.localStorage, key = PROFILES_STORAGE_KEY } = {}) {
   return {
-    async load() { try { const raw = storage?.getItem(key); return raw ? JSON.parse(raw) : {}; } catch { return {}; } },
+    loadSync() { try { const raw = storage?.getItem(key); return raw ? JSON.parse(raw) : {}; } catch { return {}; } },
+    async load() { return this.loadSync(); },
     async save(profiles) { try { storage.setItem(key, JSON.stringify(profiles.toJSON())); return true; } catch { return false; } },
   };
 }

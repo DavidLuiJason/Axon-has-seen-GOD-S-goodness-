@@ -13,6 +13,9 @@ interface-capture | c a | capture export | interface:n source:n |  |  | writes-f
 content-extractor | c a | extract organize | content:n material:n |  |  | shows-result |  | quick low | not-needed
 link-analyzer | c a | analyze detect | link:n destination:n |  |  | shows-result |  | quick low | not-needed
 background-proof | c a | prove monitor | heartbeat:n background:n |  |  | shows-result |  | quick low | not-needed
+screen-reader | c a | read scan | screen:n display:n |  |  | shows-result | permission device-capable | quick low | not-needed
+axon-apps | c a | open list | application:n phone:n |  |  | shows-result | permission owner-approval | quick low | not-needed
+auto-clicker | c a | click repeat | button:n screen:n |  |  | changes-setting | permission owner-approval device-capable | slow low | irreversible
 ai-assistant | c a | assist explain | assistant:n question:n |  |  | shows-result |  | quick low | not-needed
 collage-maker | c a | make arrange | collage:n picture:n |  |  | writes-file |  | slow high | by-removal
 picture-to-table | c a | convert draw | picture:n table:n |  |  | writes-file |  | slow mid | by-removal
@@ -68,7 +71,6 @@ split-bill | c a | divide calculate | bill:n share:n |  | bill:number:r tipPerce
 market-scope | c a | analyze study | market:n trend:n |  |  | shows-result |  | quick low | not-needed
 device-profile | c a | report inspect | device:n memory:n |  | environment:text:o | shows-result |  | quick low | not-needed
 backup-restore | c a | save restore | backup:n data:n |  |  | writes-file | owner-approval | slow high | by-removal
-axon-games | c a | play practise | game:n puzzle:n |  |  | shows-result |  | quick low | not-needed
 settings | c a | open change | setting:n preference:n |  |  | changes-setting |  | quick low | by-tool
 taught-meanings | c a | teach forget | meaning:n lesson:n |  |  | stores-note deletes | owner-approval | quick low | by-tool
 axon-source | c a | export create | source:n project:n |  |  | writes-file |  | slow high | by-removal
