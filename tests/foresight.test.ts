@@ -1,6 +1,6 @@
 import { deepStrictEqual } from 'node:assert';
 import { validateSituation, applyStep, holds } from '../src/brain/mind/foresight/situation.ts';
-import type { Situation, Step, State, Cond } from '../src/brain/mind/foresight/situation.ts';
+import type { Situation, Step, State, Cond, Chance } from '../src/brain/mind/foresight/situation.ts';
 import { lookAhead, compareChains } from '../src/brain/mind/foresight/lookahead.ts';
 import { judgeSituation, chainChance } from '../src/brain/mind/foresight/verdict.ts';
 import { calibrationReport, widenForDrift } from '../src/brain/mind/foresight/calibration.ts';
@@ -13,7 +13,7 @@ let f = 0;
 const check = (ok: boolean, name: string) => { n++; if (!ok) { f++; console.log('FAIL ' + name); } };
 const same = (a: unknown, b: unknown) => { try { deepStrictEqual(a, b); return true; } catch { return false; } };
 const M = (p: number) => ({ low: p, high: p, basis: 'MODEL' as const });
-const step = (id: string, needs: Cond[], effects: Cond[], reversible: boolean, cost: number, chance = M(100)) => ({ id, label: id, needs, effects, reversible, cost, chance });
+const step = (id: string, needs: Cond[], effects: Cond[], reversible: boolean, cost: number, chance: Chance = M(100)) => ({ id, label: id, needs, effects, reversible, cost, chance });
 const c = (item: string, state: string): Cond => ({ item, state });
 const mk = (raw: unknown): Situation => { const r = validateSituation(raw); if (!r.ok) throw new Error('setup ' + r.error); return r.value; };
 
@@ -274,7 +274,7 @@ const stuck = { id: 'stuck', items: { x: 'a' }, rules: [], steps: [step('s', [c(
   check(b2.ok && b2.value.complete && b2.value.askFirst === null && b2.value.fields.every((x) => x.source === 'owner'), 'B-02-complete');
   const b3 = buildBrief('image', {}, {});
   check(b3.ok && b3.value.askFirst === 'subject' && b3.value.fields.length === 5 && !b3.value.complete, 'B-03-nothing-given-asks-subject');
-  check(buildBrief('flyer', { contact: 'x' }, { contact: 'y' }).ok === true && (buildBrief('flyer', { contact: 'x' }, { contact: 'y' }) as { value: { fields: { name: string; value: string }[] } }).value.fields.find((x) => x.name === 'contact')?.value === 'x', 'B-04-owner-beats-default');
+  check(buildBrief('flyer', { contact: 'x' }, { contact: 'y' }).ok === true && (buildBrief('flyer', { contact: 'x' }, { contact: 'y' }) as unknown as { value: { fields: { name: string; value: string }[] } }).value.fields.find((x) => x.name === 'contact')?.value === 'x', 'B-04-owner-beats-default');
   const be = (k: unknown, g: unknown, d: unknown, error: string, name: string) => { const x = buildBrief(k, g, d); check(!x.ok && x.error === error, name); };
   be('banner', {}, {}, 'bad-input', 'B-05-unknown-kind');
   be('poster', { colour: 'red' }, {}, 'unknown-field', 'B-06-unknown-field-given');

@@ -25,6 +25,8 @@ export type AxonScreen =
   | 'axon-build'
   | 'background-proof'
   | 'screen-reader'
+  | 'auto-clicker'
+  | 'axon-apps'
   | 'image-editor'
   | 'video-editor'
   | 'audio-editor'

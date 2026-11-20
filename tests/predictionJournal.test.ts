@@ -11,7 +11,7 @@ const same = (a: unknown, b: unknown) => { try { deepStrictEqual(a, b); return t
   check(j.outcome('p1', true) && j.pendingCount() === 1 && same(j.list(), [{ id: 'p1', chance: 70, cameTrue: true }]), 'J02_outcome_moves_it_to_the_record');
   check(!j.outcome('p1', false) && !j.outcome('nope', true) && j.list().length === 1, 'J03_an_outcome_needs_an_expectation');
   check(j.expect('p2', 40) && j.pendingCount() === 1 && j.outcome('p2', false) && same(j.list()[1], { id: 'p2', chance: 40, cameTrue: false }), 'J04_same_id_replaces_the_waiting_one');
-  const l = j.list() as { cameTrue: boolean }[];
+  const l = j.list() as unknown as { cameTrue: boolean }[];
   l[0].cameTrue = false;
   check(j.list()[0].cameTrue === true, 'J05_list_returns_copies');
   check(!j.expect('', 50) && !j.expect('x', -1) && !j.expect('x', 101) && !j.expect('x', Number.NaN) && !j.expect(5 as never, 50) && !j.expect('x'.repeat(101), 50), 'J06_bad_expectations_refused');
