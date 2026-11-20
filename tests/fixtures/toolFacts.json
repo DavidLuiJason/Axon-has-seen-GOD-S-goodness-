@@ -75,7 +75,7 @@
   "name": "Auto-Clicker",
   "description": "Make, approve and run routines of taps, swipes and typing.",
   "group": "device-system",
-  "screen": false,
+  "screen": true,
   "chat": "not-built",
   "leftOut": false
  },
