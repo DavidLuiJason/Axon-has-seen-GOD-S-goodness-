@@ -499,7 +499,7 @@
   "description": "Find text and replace it, with a preview first.",
   "group": "text-writing",
   "screen": true,
-  "chat": "available",
+  "chat": "not-built",
   "leftOut": false,
   "purposes": [
    "Find literal or regular-expression matches and replace selected or all occurrences, within the engine limits."
@@ -737,7 +737,7 @@
   "description": "Work out sums, with the steps shown.",
   "group": "numbers-converters",
   "screen": true,
-  "chat": "available",
+  "chat": "not-built",
   "leftOut": false,
   "purposes": [
    "Evaluate a bounded mathematical expression with explicit degree or radian angle mode."
@@ -795,7 +795,7 @@
   "description": "Work out percentages, changes and shares.",
   "group": "numbers-converters",
   "screen": true,
-  "chat": "available",
+  "chat": "not-built",
   "leftOut": false,
   "purposes": [
    "Calculate percent-of, what-percent, percent change, adjustment and percent-of-what operations."
@@ -1043,7 +1043,7 @@
   "description": "Make strong passwords of the length you choose.",
   "group": "create-encode",
   "screen": true,
-  "chat": "available",
+  "chat": "not-built",
   "leftOut": false,
   "purposes": [
    "Generate a password from explicit options using an injected random source or the available cryptographic source."
@@ -1075,7 +1075,7 @@
   "description": "Pick random numbers, names or items from a list.",
   "group": "create-encode",
   "screen": true,
-  "chat": "available",
+  "chat": "not-built",
   "leftOut": false,
   "purposes": [
    "Pick, shuffle, roll dice, flip a coin, choose random integers or split items into teams with an injectable random source."
@@ -1585,6 +1585,16 @@
   "name": "Backup and Restore",
   "description": "Save your AXON data, or bring it back.",
   "group": "device-system",
+  "screen": false,
+  "chat": "not-built",
+  "leftOut": false
+ },
+ {
+  "kind": "tool",
+  "id": "axon-games",
+  "name": "AXON Games",
+  "description": "Brain-training games for memory, logic, maths, language and strategy, with 15 tiers each.",
+  "group": "games",
   "screen": false,
   "chat": "not-built",
   "leftOut": false
