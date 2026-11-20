@@ -45,7 +45,6 @@ const VALID_SCREENS: readonly AxonScreen[] = [
   'axon-tools',
   'axon-build',
   'background-proof',
-  'axon-apps',
   'screen-reader',
   'image-editor',
   'video-editor',

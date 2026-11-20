@@ -44,7 +44,7 @@ export const MEDIA_SUBGROUPS: readonly MediaSubgroup[] = [
 ];
 
 /** Where an available tool leads. */
-export type ToolTarget = 'interface-capture' | 'background-proof' | 'text-counter' | 'converter' | 'dictionary' | 'tool-screen';
+export type ToolTarget = 'screen-reader' | 'interface-capture' | 'background-proof' | 'text-counter' | 'converter' | 'dictionary' | 'tool-screen';
 
 export interface CatalogTool {
   id: string;
@@ -116,7 +116,8 @@ const HAND_CATALOG_TOOLS: readonly CatalogTool[] = [
     name: 'Screen Reader',
     description: 'Check that AXON can read and act on the screen.',
     groupId: 'device-system',
-    status: 'coming-soon',
+    status: 'available',
+    opens: 'screen-reader',
   },
   {
     id: 'axon-apps',

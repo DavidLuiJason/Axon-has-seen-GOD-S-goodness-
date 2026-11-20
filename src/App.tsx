@@ -16,7 +16,6 @@ import { InterfaceCaptureScreen } from './components/InterfaceCaptureScreen';
 import { AxonToolsScreen } from './components/AxonToolsScreen';
 import { AxonBuildScreen } from './components/AxonBuildScreen';
 import { BackgroundProofScreen } from './components/BackgroundProofScreen';
-import { AxonAppsScreen } from './components/AxonAppsScreen';
 import { ScreenReaderScreen } from './components/ScreenReaderScreen';
 import { ImageEditorScreen } from './components/editors/ImageEditorScreen';
 import { VideoEditorScreen } from './components/editors/VideoEditorScreen';
@@ -178,8 +177,6 @@ function AppInner() {
         <InterfaceCaptureScreen onLogoClick={handleNonChatLogoClick} />
       ) : currentScreen === 'background-proof' ? (
         <BackgroundProofScreen onLogoClick={handleNonChatLogoClick} />
-      ) : currentScreen === 'axon-apps' ? (
-        <AxonAppsScreen onLogoClick={handleNonChatLogoClick} />
       ) : currentScreen === 'screen-reader' ? (
         <ScreenReaderScreen onLogoClick={handleNonChatLogoClick} />
       ) : currentScreen === 'image-editor' ? (

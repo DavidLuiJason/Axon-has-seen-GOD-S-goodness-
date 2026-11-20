@@ -5,7 +5,6 @@ import { ENGINE_DESCRIPTORS, registerEngineTools } from '../src/capabilities/reg
 import { registerAxonToolsCapability } from '../src/capabilities/registerAxonTools';
 import { registerInterfaceCaptureCapability } from '../src/capabilities/registerInterfaceCapture';
 import { registerBackgroundProofCapability } from '../src/capabilities/registerBackgroundProof';
-import { registerAxonAppsCapability } from '../src/capabilities/registerAxonApps';
 import { registerScreenReaderCapability } from '../src/capabilities/registerScreenReader';
 import { registerDictionaryCapability } from '../src/capabilities/registerDictionary';
 import { listCapabilities, listChatActions, getCapability } from '../src/capabilities/registry';
@@ -20,7 +19,6 @@ function main(): void {
   registerAxonToolsCapability();
   registerInterfaceCaptureCapability();
   registerBackgroundProofCapability();
-  registerAxonAppsCapability();
   registerScreenReaderCapability();
   registerDictionaryCapability();
   registerEngineTools();
@@ -69,7 +67,6 @@ function main(): void {
     if (toolId === 'text-counter') return actions.some(({ action }) => action.id === 'act.text-counter');
     if (toolId === 'interface-capture') return capabilities.some(({ id }) => id === 'cap.interface-capture');
     if (toolId === 'background-proof') return capabilities.some(({ id }) => id === 'cap.background-proof');
-    if (toolId === 'axon-apps') return capabilities.some(({ id }) => id === 'cap.axon-apps');
     if (toolId === 'screen-reader') return capabilities.some(({ id }) => id === 'cap.screen-reader');
     if (toolId === 'dictionary') return capabilities.some(({ id }) => id === 'cap.english-dictionary');
     return getCapability(`cap.engine-tools.${toolId}`) !== undefined;

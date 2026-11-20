@@ -12,7 +12,6 @@ import { registerSettingsCapability } from '../src/capabilities/registerSettings
 import { registerAxonSourceCapability } from '../src/capabilities/registerAxonSource';
 import { registerInterfaceCaptureCapability } from '../src/capabilities/registerInterfaceCapture';
 import { registerBackgroundProofCapability } from '../src/capabilities/registerBackgroundProof';
-import { registerAxonAppsCapability } from '../src/capabilities/registerAxonApps';
 import { registerScreenReaderCapability } from '../src/capabilities/registerScreenReader';
 import { registerDictionaryCapability } from '../src/capabilities/registerDictionary';
 import { registerPlannedCapabilities } from '../src/capabilities/registerPlanned';
@@ -40,7 +39,6 @@ function main(): void {
   registerAxonSourceCapability();
   registerInterfaceCaptureCapability();
   registerBackgroundProofCapability();
-  registerAxonAppsCapability();
   registerScreenReaderCapability();
   registerDictionaryCapability();
   registerPlannedCapabilities();
