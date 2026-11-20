@@ -9,6 +9,8 @@ import { registerAxonSourceCapability } from './capabilities/registerAxonSource'
 import { registerInterfaceCaptureCapability } from './capabilities/registerInterfaceCapture';
 import { registerScreenIntelligenceCapability } from './capabilities/registerScreenIntelligence';
 import { registerBackgroundProofCapability } from './capabilities/registerBackgroundProof';
+import { registerAxonAppsCapability } from './capabilities/registerAxonApps';
+import { registerScreenReaderCapability } from './capabilities/registerScreenReader';
 import { registerDictionaryCapability } from './capabilities/registerDictionary';
 import { registerPlannedCapabilities } from './capabilities/registerPlanned';
 import { registerTaughtMeaningsCapability } from './capabilities/registerTaughtMeanings';
@@ -18,6 +20,8 @@ import { registerAxonToolsInterface } from './interfaces/registerAxonTools';
 import { registerAxonSourceInterface } from './interfaces/registerAxonSource';
 import { registerInterfaceCaptureInterface } from './interfaces/registerInterfaceCapture';
 import { registerBackgroundProofInterface } from './interfaces/registerBackgroundProof';
+import { registerAxonAppsInterface } from './interfaces/registerAxonApps';
+import { registerScreenReaderInterface } from './interfaces/registerScreenReader';
 import { RootBoundary } from './components/RootBoundary';
 import { getCrashLog, installGlobalCrashHandlers } from './crash/crashLog';
 
@@ -34,6 +38,8 @@ registerInterfaceCaptureCapability();
 registerScreenIntelligenceCapability();
 // Stage 6: Background Proof capability
 registerBackgroundProofCapability();
+registerAxonAppsCapability();
+registerScreenReaderCapability();
 // B04B4P4 (owner yes, 2026-10-27): the dictionary and the planned abilities were imported but never called, so the app
 // told the brain `dictionary` was not built. The tests already register both; now the app does too.
 registerDictionaryCapability();
@@ -52,6 +58,8 @@ registerAxonSourceInterface();
 registerInterfaceCaptureInterface();
 // Stage 6: Background Proof interface
 registerBackgroundProofInterface();
+registerAxonAppsInterface();
+registerScreenReaderInterface();
 
 // Errors React cannot catch (event handlers, timers, unhandled promises) go to the crash log
 installGlobalCrashHandlers(getCrashLog(), window);

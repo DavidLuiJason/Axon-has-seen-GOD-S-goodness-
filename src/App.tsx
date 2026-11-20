@@ -3,11 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useRef, useEffect } from 'react';
-import { Capacitor } from '@capacitor/core';
+import React, { useState, useRef, useEffect } from 'react';
 import { TopBar } from './components/TopBar';
-import { Composer, type ComposerSendOptions } from './components/Composer';
-import { QuickActionSettingsSheet } from './quickAction';
+import { Composer } from './components/Composer';
 import { NavigationDrawer } from './components/NavigationDrawer';
 import { WelcomeState } from './components/WelcomeState';
 import { ActiveConversation } from './components/ActiveConversation';
@@ -18,13 +16,14 @@ import { InterfaceCaptureScreen } from './components/InterfaceCaptureScreen';
 import { AxonToolsScreen } from './components/AxonToolsScreen';
 import { AxonBuildScreen } from './components/AxonBuildScreen';
 import { BackgroundProofScreen } from './components/BackgroundProofScreen';
+import { AxonAppsScreen } from './components/AxonAppsScreen';
+import { ScreenReaderScreen } from './components/ScreenReaderScreen';
 import { ImageEditorScreen } from './components/editors/ImageEditorScreen';
 import { VideoEditorScreen } from './components/editors/VideoEditorScreen';
 import { AudioEditorScreen } from './components/editors/AudioEditorScreen';
 import { ConverterScreen } from './components/ConverterScreen';
 import { DictionaryScreen } from './components/DictionaryScreen';
-import { AxonWebScreen, WebSheetsHost, useIsTabSwitcherOpen } from './components/web';
-import { useWebActiveTab } from './web/ui/useWebUi';
+import { BrowserHomeScreen } from './components/browser/BrowserHomeScreen';
 import { ToolScreenHost } from './tools/screens/registry';
 import { ScreenGuard } from './components/ScreenGuard';
 import { sendQueryToAxonBoundary } from './services/axonBrainInterface';
@@ -55,15 +54,6 @@ function AppInner() {
   const [isSending, setIsSending] = useState(false);
   // Which of the three AXON places is showing: Chat, Web or Apps
   const [mode, setMode] = useState<AxonMode>('chat');
-
-  const activeWebTab = useWebActiveTab();
-  const isTabSwitcherOpen = useIsTabSwitcherOpen();
-  const isNativeWebPageTransparent =
-    currentScreen === 'chat' &&
-    mode === 'web' &&
-    Capacitor.isNativePlatform() &&
-    Boolean(activeWebTab?.url) &&
-    !isTabSwitcherOpen;
 
   // Modals (isTokensModalOpen migrated to state root in Stage 1A)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -143,17 +133,16 @@ function AppInner() {
   };
 
   // Handle sending a message (session mutations via state root)
-  const handleSendMessage = async (text: string, options?: ComposerSendOptions) => {
-    const hasAttachments = Boolean(options?.attachments && options.attachments.length > 0);
-    if ((!text.trim() && !hasAttachments) || isSending) return;
+  const handleSendMessage = async (text: string) => {
+    if (!text.trim() || isSending) return;
 
-    const nextAfterUser = appendUserMessage(text, options);
+    const nextAfterUser = appendUserMessage(text);
 
     setIsSending(true);
 
     try {
       // Dispatches to the strictly segregated AXON brain interface
-      const axonResponse = await sendQueryToAxonBoundary(text, options);
+      const axonResponse = await sendQueryToAxonBoundary(text);
       appendAssistantMessage(axonResponse, nextAfterUser);
     } catch {
       // Graceful fallback without exposing raw errors
@@ -173,11 +162,7 @@ function AppInner() {
   };
 
   return (
-    <div
-      className={`relative w-full h-dvh ${
-        isNativeWebPageTransparent ? 'bg-transparent' : 'bg-[#121315]'
-      } text-[#ECECEC] font-sans antialiased overflow-hidden flex flex-col`}
-    >
+    <div className="relative w-full h-dvh bg-[#121315] text-[#ECECEC] font-sans antialiased overflow-hidden flex flex-col">
       <ScreenGuard onOpenMenu={handleNonChatLogoClick}>
       {currentScreen === 'axon-source' ? (
         <AxonSourceScreen
@@ -193,6 +178,10 @@ function AppInner() {
         <InterfaceCaptureScreen onLogoClick={handleNonChatLogoClick} />
       ) : currentScreen === 'background-proof' ? (
         <BackgroundProofScreen onLogoClick={handleNonChatLogoClick} />
+      ) : currentScreen === 'axon-apps' ? (
+        <AxonAppsScreen onLogoClick={handleNonChatLogoClick} />
+      ) : currentScreen === 'screen-reader' ? (
+        <ScreenReaderScreen onLogoClick={handleNonChatLogoClick} />
       ) : currentScreen === 'image-editor' ? (
         <ImageEditorScreen
           onBack={() => setCurrentScreen('axon-tools')}
@@ -230,24 +219,18 @@ function AppInner() {
           <TopBar
             onOpenDrawer={() => setIsDrawerOpen(true)}
             onOpenInfo={openTokensModal}
-            mode={mode}
-            onOpenSettings={() => setIsSettingsModalOpen(true)}
           />
 
           {/* 2. INDEPENDENT SCROLLING VIEWPORT AREA */}
           <main
             ref={scrollContainerRef}
             onScroll={handleMainScroll}
-            className={`flex-1 w-full ${
-              mode === 'web'
-                ? 'pt-16 pb-36 flex flex-col overflow-hidden'
-                : activeChatId
-                  ? 'pt-16 pb-36 flex flex-col justify-between overflow-y-auto overflow-x-hidden'
-                  : 'flex flex-col overflow-y-auto overflow-x-hidden'
+            className={`flex-1 w-full overflow-y-auto overflow-x-hidden ${
+              activeChatId ? 'pt-16 pb-36 flex flex-col justify-between' : 'flex flex-col'
             }`}
           >
             {mode === 'web' ? (
-              <AxonWebScreen />
+              <BrowserHomeScreen />
             ) : mode === 'apps' ? (
               <div className="flex-1 flex items-center justify-center px-8 text-center text-sm text-[#8E9094]">
                 Apps is coming soon. Your phone's apps will open here with AXON on top.
@@ -269,12 +252,11 @@ function AppInner() {
             setInput={setComposerInput}
             onSend={handleSendMessage}
             onToggleCompactMode={openTokensModal}
-            onNewChat={newChat}
             mode={mode}
             onModeChange={setMode}
             showScrollDown={showScrollDown && mode === 'chat' && activeChatId !== null}
             onScrollDown={handleScrollToBottom}
-            disabled={isSending || mode === 'apps'}
+            disabled={isSending || mode !== 'chat'}
           />
         </>
       )}
@@ -300,12 +282,6 @@ function AppInner() {
         onClose={() => setIsSettingsModalOpen(false)}
         onLogoClick={handleNonChatLogoClick}
       />
-
-      {/* 7. QUICK ACTION BUTTON SETTINGS SHEET */}
-      <QuickActionSettingsSheet />
-
-      {/* 8. LAZY WEB BROWSER SHEETS */}
-      <WebSheetsHost />
     </div>
   );
 }

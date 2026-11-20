@@ -18,6 +18,8 @@ import { registerEngineTools } from '../src/capabilities/registerEngineTools';
 import { registerAxonSourceCapability } from '../src/capabilities/registerAxonSource';
 import { registerInterfaceCaptureCapability } from '../src/capabilities/registerInterfaceCapture';
 import { registerBackgroundProofCapability } from '../src/capabilities/registerBackgroundProof';
+import { registerAxonAppsCapability } from '../src/capabilities/registerAxonApps';
+import { registerScreenReaderCapability } from '../src/capabilities/registerScreenReader';
 import { registerDictionaryCapability } from '../src/capabilities/registerDictionary';
 import { registerPlannedCapabilities } from '../src/capabilities/registerPlanned';
 import { registerTaughtMeaningsCapability } from '../src/capabilities/registerTaughtMeanings';
@@ -32,7 +34,7 @@ let checks = 0;
 function assert(condition: unknown, message: string): asserts condition { checks += 1; if (!condition) throw new Error(`FAIL: ${message}`); }
 const sha = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
 for (const register of [registerSettingsCapability, registerAxonToolsCapability, registerEngineTools, registerAxonSourceCapability,
-  registerInterfaceCaptureCapability, registerBackgroundProofCapability, registerDictionaryCapability, registerPlannedCapabilities,
+  registerInterfaceCaptureCapability, registerBackgroundProofCapability, registerAxonAppsCapability, registerScreenReaderCapability, registerDictionaryCapability, registerPlannedCapabilities,
   registerTaughtMeaningsCapability, registerPlannedMediaCapabilities]) register();
 
 interface NeedCases {

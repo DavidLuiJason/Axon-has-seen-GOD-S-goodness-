@@ -45,7 +45,7 @@ export const MEDIA_SUBGROUPS: readonly MediaSubgroup[] = [
 ];
 
 /** Where an available tool leads. */
-export type ToolTarget = 'interface-capture' | 'background-proof' | 'text-counter' | 'converter' | 'dictionary' | 'tool-screen';
+export type ToolTarget = 'axon-apps' | 'screen-reader' | 'interface-capture' | 'background-proof' | 'text-counter' | 'converter' | 'dictionary' | 'tool-screen';
 
 export interface CatalogTool {
   id: string;
@@ -112,6 +112,29 @@ const HAND_CATALOG_TOOLS: readonly CatalogTool[] = [
     groupId: 'device-system',
     status: 'available',
     opens: 'background-proof',
+  },
+  {
+    id: 'screen-reader',
+    name: 'Screen Reader',
+    description: 'Check that AXON can read and act on the screen.',
+    groupId: 'device-system',
+    status: 'available',
+    opens: 'screen-reader',
+  },
+  {
+    id: 'axon-apps',
+    name: 'AXON Apps',
+    description: 'See your installed apps and let AXON open them.',
+    groupId: 'device-system',
+    status: 'available',
+    opens: 'axon-apps',
+  },
+  {
+    id: 'auto-clicker',
+    name: 'Auto-Clicker',
+    description: 'Make, approve and run routines of taps, swipes and typing.',
+    groupId: 'device-system',
+    status: 'coming-soon',
   },
   {
     id: 'ai-assistant',

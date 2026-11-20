@@ -38,6 +38,8 @@ import { registerAxonToolsCapability } from '../src/capabilities/registerAxonToo
 import { registerAxonSourceCapability } from '../src/capabilities/registerAxonSource';
 import { registerInterfaceCaptureCapability } from '../src/capabilities/registerInterfaceCapture';
 import { registerBackgroundProofCapability } from '../src/capabilities/registerBackgroundProof';
+import { registerAxonAppsCapability } from '../src/capabilities/registerAxonApps';
+import { registerScreenReaderCapability } from '../src/capabilities/registerScreenReader';
 import { registerDictionaryCapability } from '../src/capabilities/registerDictionary';
 import { registerPlannedCapabilities } from '../src/capabilities/registerPlanned';
 import { registerTaughtMeaningsCapability } from '../src/capabilities/registerTaughtMeanings';
@@ -216,7 +218,7 @@ async function main(): Promise<void> {
 
   // ---- 6. golden transcript with the Meaning stage ON --------------------------------------------------------------------
   registerSettingsCapability(); registerAxonToolsCapability(); registerAxonSourceCapability(); registerInterfaceCaptureCapability();
-  registerBackgroundProofCapability(); registerDictionaryCapability(); registerPlannedCapabilities(); registerTaughtMeaningsCapability(); registerPlannedMediaCapabilities();
+  registerBackgroundProofCapability(); registerAxonAppsCapability(); registerScreenReaderCapability(); registerDictionaryCapability(); registerPlannedCapabilities(); registerTaughtMeaningsCapability(); registerPlannedMediaCapabilities();
   const fixedNow = () => 1700000000000;
   const memory = (): KeyValueStore => { const values = new Map<string, string>(); return { getItem: (k) => values.get(k) ?? null, setItem: (k, v) => { values.set(k, v); }, removeItem: (k) => { values.delete(k); } }; };
   const freshBrain = () => {
