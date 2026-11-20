@@ -1,0 +1,20 @@
+WORKSTREAM: AXON CODE (Round 14 Continuation 6)
+ACCOUNT / ROLE: ChatGPT = builder; Claude = Director/verifier
+UPDATED: 2026-11-17
+STATE NOW: Start gate PASSED: 1,390/1,390; post-change full suite 1,407/1,407, 0 failed, 0 skipped; ratchet unchanged.
+STATE NOW: R1 JavaScript Run/Stop and R3 IndexedDB jobs are BUILT with Node contract tests; Chromium proof NOT RUN.
+BASE TO START FROM: AXON_CODE_R14_DIRECTOR_BASE_4.zip + AXON_CODE_VENDOR_PACK_V2.zip + AXON-CODE-R14-PATCH1-merge.zip; post-change full-suite result: 1,407 passed, 0 failed, 0 skipped.
+OWNS: axon-code/, docs/AXON_CODE_*.md, workstreams/AXON_CODE.txt
+MUST NOT TOUCH: src/, tests/, tools/, public/ at repository ROOT, .github, root package.json/tsconfig.json, NOW.txt, MERGE_TAG.txt, docs/JOB_BOARD.md, other workstreams
+NOT BEING DONE HERE: AXON Web, Apps, Games, AI Studio screens, tools-to-brain registration.
+SCREEN CONTRACT: docs/AXON_CODE_SCREEN_CONTRACT.json updated for Run/Stop/stdin/jobs; docs/AXON_CODE_SCREEN_READINESS.md was absent in supplied base.
+R0: SKIPPED — axon-code-ci-results.zip was not attached.
+R1: BUILT — opaque-origin JavaScript worker; 5-second timeout, 256 KiB output cap, fresh worker per run; Chromium proof NOT RUN.
+R2: NOT BUILT — browser Pyodide worker not implemented; no fake interpreter and no weakening of the worker network/import policy.
+R3: PARTIAL BUILT — IndexedDB states, quota, concurrency cap, ownership rule, reload interruption; browser dispatch proof NOT RUN; Pause/Resume unsupported.
+R4: measured initial JS, lazy xterm and Pyodide package bytes; Chromium CPU/heap timings and phone metrics NOT RUN.
+R5: screen contract and built-UI ID tests updated; missing Director readiness file reported, not recreated.
+R6: ten-task Playwright acceptance script added; NOT RUN because Chromium executable is unavailable.
+R7: capability matrix and Round 15 handover updated from measured/NOT RUN evidence only.
+NEXT: implement a secure browser Pyodide worker and real queue dispatch, then run Chromium/cloud acceptance and phone proof.
+WAITING ON THE OWNER: cloud CI/browser result ZIP, real-device proof, and clean-install verification when registry access is available.

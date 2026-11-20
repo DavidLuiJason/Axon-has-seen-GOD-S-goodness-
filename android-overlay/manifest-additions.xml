@@ -1,0 +1,55 @@
+<!--
+  Overlay additions for AndroidManifest.xml after `npx cap add android`.
+  Applied by scripts/apply-android-overlay.sh
+
+  Permissions (exact — FOREGROUND_SERVICE must not be skipped):
+    POST_NOTIFICATIONS
+    FOREGROUND_SERVICE
+    FOREGROUND_SERVICE_SPECIAL_USE
+    FOREGROUND_SERVICE_MEDIA_PROJECTION (API 34+)
+    REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+    WAKE_LOCK
+    INTERNET
+
+  Service:
+    .background.BackgroundJobService
+    foregroundServiceType="specialUse"
+    property android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE
+-->
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+<!-- Service fragment (inserted inside <application>): -->
+<!--
+        <service
+            android:name=".background.BackgroundJobService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Background execution proof: continuous native heartbeat and activity label for reliability measurement. Not media, not data sync." />
+        </service>
+-->
+
+<!-- Insert inside <application> when applying the overlay. -->
+<!--
+        <service
+            android:name=".screencapture.ScreenCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+-->
+
+<!-- Browser host activity (inserted by scripts/apply-android-overlay.sh). -->
+<!-- <activity android:name=".browser.BrowserActivity" android:exported="false" android:configChanges="orientation|screenSize|keyboardHidden" /> -->
+
+<!-- Read-only accessibility screen reader (inserted by scripts/apply-android-overlay.sh; the owner turns it on in Android Accessibility settings). -->
+<!-- <service android:name=".screenstructure.AxonAccessibilityService" android:exported="true" android:label="AXON screen reader" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"> with the accessibility intent-filter and @xml/axon_accessibility_service -->
+
+<!-- AXON Apps: a narrow launcher query (inserted by scripts/apply-android-overlay.sh) so the installed-app list works on Android 11+ without the broad all-packages permission. -->
+<!-- <queries><intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent></queries> -->

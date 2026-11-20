@@ -1,0 +1,65 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * B1 staged Mind API, compatible with the existing Brain contract.
+ */
+import type { BrainProvider, BrainReply, BrainRequest, PlannedSource } from '../types';
+import type { BrainSources } from '../brain';
+import { PLANNED_SOURCES } from '../brain';
+import { createLegacyExecutor } from './legacy';
+import { createStages } from './stages';
+import type { KnowledgeSlot } from '../knowledge/slot';
+import type { ToolFact } from './schema/schemaTypes';
+import type { MindContext, MindTrace, Utterance } from './types';
+import type { LaneConfig } from './directLane';
+import { emptyDialogue, recordTurn } from './dialogue/dialogueState';
+import { turnFromResolutions, type DialogueHost } from './dialogue/dialogueDriver';
+import type { DialogueState } from './dialogue/dialogueTypes';
+
+export function createMind(options: { providers: BrainProvider[]; fallback: BrainProvider; planned?: PlannedSource[]; now?: () => number; slot?: KnowledgeSlot; liveFacts?: () => readonly ToolFact[]; lane?: LaneConfig; dialogue?: boolean }) {
+  const now = options.now ?? Date.now;
+  let sequence = 0;
+  const nextId = () => `utterance-${++sequence}`;
+  const executor = createLegacyExecutor(options.providers, options.fallback);
+  // B05 D2a (shadow): ONE dialogue state per Mind. `dialogue: false` switches the shadow off (the stage then behaves as before; used to prove replies are identical).
+  let dialogueState: DialogueState = emptyDialogue();
+  const dialogueHost: DialogueHost | undefined = options.dialogue === false ? undefined : { get: () => dialogueState, set: (next) => { dialogueState = next; } };
+  const stages = createStages(executor, now, nextId, options.slot, options.liveFacts, options.lane, dialogueHost);
+
+  async function askWithTrace(request: BrainRequest): Promise<{ reply: BrainReply; trace: MindTrace }> {
+    const utterance: Utterance = { id: '', text: request.text, place: request.place, at: 0 };
+    let context: MindContext = { utterance, entries: [] };
+    for (const stage of stages) {
+      try {
+        context = await stage.run(context);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        context = { ...context, entries: [...context.entries, { stage: stage.id, state: 'not-built', note: `stage failed: ${message}` }] };
+      }
+    }
+    const reply = context.reply ?? (await executor.run(request));
+    if (dialogueHost) {
+      // Shadow record of the turn. It can never change or break the reply.
+      try {
+        const seen = turnFromResolutions(context.resolutions);
+        dialogueHost.set(recordTurn(dialogueHost.get(), { id: context.utterance.id, at: context.utterance.at, text: request.text, tool: seen.tool, outcome: seen.outcome }));
+      } catch { /* shadow only */ }
+    }
+    return { reply, trace: { utterance: context.utterance, entries: context.entries } };
+  }
+
+  return {
+    async ask(request: BrainRequest): Promise<BrainReply> { return (await askWithTrace(request)).reply; },
+    sources(): BrainSources {
+      return { connected: [...options.providers, options.fallback].map((provider) => provider.status()), planned: [...(options.planned ?? PLANNED_SOURCES)] };
+    },
+    askWithTrace,
+    /** B05 D2a: a new chat or another chat starts with an empty dialogue (nothing is saved across chats). */
+    resetDialogue(): void { dialogueState = emptyDialogue(); },
+    /** B05 D2a: the current dialogue state (read only; for tests and the trace). */
+    dialogueSnapshot(): DialogueState { return dialogueState; },
+  };
+}
+
+export type Mind = ReturnType<typeof createMind>;

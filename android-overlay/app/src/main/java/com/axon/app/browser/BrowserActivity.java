@@ -1,0 +1,1379 @@
+package com.axon.app.browser;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.DownloadManager;
+import android.content.Context;
+import android.database.Cursor;
+import android.content.Intent;
+import android.net.Uri;
+import android.net.http.SslError;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.webkit.CookieManager;
+import android.webkit.DownloadListener;
+import android.webkit.SafeBrowsingResponse;
+import android.webkit.SslErrorHandler;
+import android.webkit.URLUtil;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import androidx.webkit.ProfileStore;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+import android.webkit.WebViewClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebBackForwardList;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+import org.json.JSONTokener;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.UUID;
+
+/**
+ * First AXON Web native host. Normal tabs only; tabs share the default WebView cookie store.
+ * No JavaScript interface is injected into websites. Site camera/mic/location grants are denied.
+ */
+public final class BrowserActivity extends Activity {
+    public static final String EXTRA_URL = "com.axon.app.browser.URL";
+    public static final String EXTRA_AXON_URL = "com.axon.app.browser.AXON_URL";
+    private static final int FILE_CHOOSER_REQUEST = 4817;
+    private static volatile BrowserActivity instance;
+
+    private static final class BrowserTab {
+        WebView view;
+        String url = "about:blank";
+        String title = "New tab";
+        boolean loading = false;
+        Bundle savedState;
+        String groupId;
+        String kind = "normal";
+        boolean stealth = false;
+        String profileName;
+        boolean axon = false;
+        boolean pinned = false;
+    }
+    private static final class BrowserTabGroup {
+        String id;
+        String name;
+        BrowserTabGroup(String id, String name) { this.id = id; this.name = name; }
+    }
+
+    private final ArrayList<BrowserTab> tabs = new ArrayList<>();
+    private final ArrayList<BrowserTabGroup> tabGroups = new ArrayList<>();
+    private final ArrayList<JSONObject> history = new ArrayList<>();
+    private final ArrayList<JSONObject> bookmarks = new ArrayList<>();
+    private final ArrayList<String> bookmarkFolders = new ArrayList<>();
+    private final ArrayList<JSONObject> readingList = new ArrayList<>();
+    private final ArrayList<Long> downloadIds = new ArrayList<>();
+    private LinearLayout root;
+    private LinearLayout toolbar;
+    private FrameLayout pageFrame;
+    private EditText address;
+    private TextView status;
+    private Button tabsButton;
+    private int activeIndex = 0;
+    private ValueCallback<Uri[]> uploadCallback;
+    private boolean desktopSite = false;
+
+    public static BrowserActivity getInstance() { return instance; }
+
+    @Override public void onCreate(Bundle state) {
+        super.onCreate(state);
+        instance = this;
+        cleanupOrphanedIncognitoProfiles();
+        loadSavedData();
+        buildLayout();
+        String first = getIntent().getStringExtra(EXTRA_URL);
+        if (tabs.isEmpty()) createTabInternal(first == null ? "https://www.google.com" : first, false);
+        else {
+            ensureWebView(active());
+            attachActiveTab();
+        }
+        String axonUrl = getIntent().getStringExtra(EXTRA_AXON_URL);
+        if (axonUrl != null) { try { axonOpen(axonUrl); } catch (Exception ignored) { } }
+        updateChrome();
+    }
+
+    private int dp(float value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
+
+    private void buildLayout() {
+        root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(0xFF17181B);
+
+        LinearLayout addressRow = new LinearLayout(this);
+        addressRow.setOrientation(LinearLayout.HORIZONTAL);
+        addressRow.setGravity(Gravity.CENTER_VERTICAL);
+        addressRow.setPadding(dp(8), dp(8), dp(8), dp(4));
+        address = new EditText(this);
+        address.setSingleLine(true);
+        address.setTextColor(0xFFF0F0F0);
+        address.setHintTextColor(0xFF9A9DA3);
+        address.setHint("Search or enter website");
+        address.setTextSize(14);
+        address.setImeOptions(EditorInfo.IME_ACTION_GO);
+        address.setSelectAllOnFocus(true);
+        address.setBackgroundColor(0xFF292B30);
+        address.setPadding(dp(12), dp(8), dp(12), dp(8));
+        addressRow.addView(address, new LinearLayout.LayoutParams(0, dp(44), 1));
+        Button go = button("Go");
+        addressRow.addView(go, new LinearLayout.LayoutParams(dp(52), dp(44)));
+        go.setOnClickListener(v -> navigate(address.getText().toString()));
+        address.setOnEditorActionListener((v, action, event) -> {
+            if (action == EditorInfo.IME_ACTION_GO || action == EditorInfo.IME_ACTION_DONE) {
+                navigate(address.getText().toString()); return true;
+            }
+            return false;
+        });
+        root.addView(addressRow);
+
+        toolbar = new LinearLayout(this);
+        toolbar.setOrientation(LinearLayout.HORIZONTAL);
+        toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        toolbar.setPadding(dp(4), dp(2), dp(4), dp(4));
+        Button back = button("‹"); back.setContentDescription("Back"); back.setOnClickListener(v -> goBack()); toolbar.addView(back, weightButton());
+        Button forward = button("›"); forward.setContentDescription("Forward"); forward.setOnClickListener(v -> goForward()); toolbar.addView(forward, weightButton());
+        Button reload = button("↻"); reload.setContentDescription("Reload or stop"); reload.setOnClickListener(v -> { if (active().loading) stop(); else reload(); }); toolbar.addView(reload, weightButton());
+        tabsButton = button("Tabs 1"); tabsButton.setOnClickListener(v -> showTabs()); toolbar.addView(tabsButton, new LinearLayout.LayoutParams(0, dp(40), 1.35f));
+        Button add = button("+"); add.setContentDescription("New tab"); add.setOnClickListener(v -> newTab("https://www.google.com")); toolbar.addView(add, weightButton());
+        Button menu = button("⋮"); menu.setContentDescription("Browser menu"); menu.setOnClickListener(v -> showMenu()); toolbar.addView(menu, weightButton());
+        root.addView(toolbar);
+
+        status = new TextView(this);
+        status.setTextColor(0xFF9A9DA3);
+        status.setTextSize(11);
+        status.setPadding(dp(12), dp(2), dp(12), dp(4));
+        root.addView(status);
+
+        pageFrame = new FrameLayout(this);
+        root.addView(pageFrame, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        setContentView(root);
+    }
+
+    private LinearLayout.LayoutParams weightButton() { return new LinearLayout.LayoutParams(0, dp(40), 1); }
+    private Button button(String label) {
+        Button b = new Button(this); b.setText(label); b.setTextSize(14); b.setTextColor(0xFFECECEC);
+        b.setAllCaps(false); b.setMinWidth(0); b.setPadding(dp(2), 0, dp(2), 0); b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF292B30));
+        return b;
+    }
+
+    private BrowserTab active() { return tabs.isEmpty() ? null : tabs.get(Math.max(0, Math.min(activeIndex, tabs.size() - 1))); }
+
+    private void createTabInternal(String url, boolean save) {
+        createTabInternal(url, "normal", null, save);
+    }
+
+    private void createTabInternal(String url, String kind, Boolean stealthChoice, boolean save) {
+        if (!"normal".equals(kind) && !"incognito".equals(kind)) throw new IllegalArgumentException("Tab kind must be normal or incognito.");
+        boolean stealth = stealthChoice == null ? "stealth".equals(getDefaultMode()) : stealthChoice.booleanValue();
+        if (("incognito".equals(kind) || stealth) && !multiProfileSupported()) {
+            throw new IllegalStateException("Incognito and stealth tabs are unavailable because this Android System WebView does not support MULTI_PROFILE. No shared-cookie fallback is allowed.");
+        }
+        suspendActiveTab();
+        BrowserTab tab = new BrowserTab();
+        tab.kind = kind; tab.stealth = stealth;
+        if ("incognito".equals(kind) || stealth) tab.profileName = ("incognito".equals(kind) ? "axon_incognito_" : "axon_stealth_") + UUID.randomUUID().toString();
+        tab.url = normalizeAddress(url == null ? "https://www.google.com" : url);
+        tabs.add(tab); activeIndex = tabs.size() - 1;
+        ensureWebView(tab);
+        attachActiveTab(); updateChrome(); if (save) saveTabs();
+    }
+
+    private boolean multiProfileSupported() {
+        return WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE);
+    }
+
+    private void cleanupOrphanedIncognitoProfiles() {
+        if (!multiProfileSupported()) return;
+        ProfileStore store = ProfileStore.getInstance();
+        for (String name : new ArrayList<>(store.getAllProfileNames())) {
+            if (name.startsWith("axon_incognito_")) {
+                try { store.deleteProfile(name); }
+                catch (Exception error) { throw new IllegalStateException("Could not clean up an orphaned incognito profile; private browsing is blocked until cleanup succeeds.", error); }
+            }
+        }
+    }
+
+    private void deleteEphemeralProfile(BrowserTab tab) {
+        if (tab == null || !"incognito".equals(tab.kind) || tab.profileName == null || !multiProfileSupported()) return;
+        try { ProfileStore.getInstance().deleteProfile(tab.profileName); }
+        catch (Exception error) { throw new IllegalStateException("Could not delete the incognito profile after its WebView was destroyed.", error); }
+        tab.profileName = null;
+    }
+
+    private void createWebView(BrowserTab tab) {
+        WebView web = new WebView(this);
+        if (tab.profileName != null) {
+            if (!multiProfileSupported()) { web.destroy(); throw new IllegalStateException("This WebView does not support MULTI_PROFILE; refusing to create an isolated tab."); }
+            WebViewCompat.setProfile(web, tab.profileName);
+        }
+        tab.view = web;
+        WebSettings settings = web.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+        settings.setLoadsImagesAutomatically(true);
+        settings.setSupportMultipleWindows(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(false);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        settings.setBuiltInZoomControls(true);
+        settings.setDisplayZoomControls(false);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(tailPrefs().getBoolean("safeBrowsing", true));
+        settings.setTextZoom(tailPrefs().getInt("textZoom", 100));
+        CookieManager.getInstance().setAcceptCookie(true);
+        web.setBackgroundColor(0xFFFFFFFF);
+        web.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl(); String scheme = uri.getScheme();
+                return uri.getUserInfo() != null || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme));
+            }
+            @Override public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                Uri uri = Uri.parse(url); String scheme = uri.getScheme();
+                return uri.getUserInfo() != null || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme));
+            }
+            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                tab.url = url; tab.loading = true; if (tab == active()) updateChrome();
+            }
+            @Override public void onPageFinished(WebView view, String url) {
+                tab.url = url; tab.title = view.getTitle() == null ? url : view.getTitle(); tab.loading = false;
+                if (!"incognito".equals(tab.kind)) addHistory(tab.title, url); if (tab == active()) updateChrome(); saveTabs();
+            }
+            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) { handler.cancel(); }
+            @Override public void onSafeBrowsingHit(WebView view, WebResourceRequest request, int threatType, SafeBrowsingResponse response) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) response.backToSafety(true);
+                else super.onSafeBrowsingHit(view, request, threatType, response);
+            }
+            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request.isForMainFrame()) { tab.loading = false; if (tab == active()) status.setText("Page could not be loaded: " + error.getDescription()); }
+            }
+        });
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override public void onProgressChanged(WebView view, int progress) {
+                if (tab == active()) status.setText(progress < 100 ? "Loading " + progress + "%" : safeHost(tab.url));
+            }
+            @Override public void onReceivedTitle(WebView view, String title) { tab.title = title == null ? tab.url : title; if (tab == active()) updateChrome(); }
+            @Override public void onPermissionRequest(android.webkit.PermissionRequest request) { request.deny(); }
+            @Override public void onGeolocationPermissionsShowPrompt(String origin, android.webkit.GeolocationPermissions.Callback callback) { callback.invoke(origin, false, false); }
+            @Override public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
+                if (uploadCallback != null) uploadCallback.onReceiveValue(null);
+                uploadCallback = callback;
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
+                try { startActivityForResult(intent, FILE_CHOOSER_REQUEST); return true; }
+                catch (Exception e) { uploadCallback = null; callback.onReceiveValue(null); return false; }
+            }
+            @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) {
+                if (!userGesture) return false;
+                BrowserTab next = createTabObject();
+                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(next.view); resultMsg.sendToTarget();
+                return true;
+            }
+        });
+        web.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> startDownload(tab, url, userAgent, contentDisposition, mimeType));
+    }
+
+    /** Keep only the selected tab's renderer alive; other tabs retain navigation state only. */
+    private void ensureWebView(BrowserTab tab) {
+        if (tab == null || tab.view != null) return;
+        createWebView(tab);
+        if (tab.savedState != null) {
+            WebBackForwardList restored = tab.view.restoreState(tab.savedState);
+            tab.savedState = null;
+            if (restored == null && tab.url != null) tab.view.loadUrl(tab.url);
+            else if (tab.view.getUrl() != null) tab.url = tab.view.getUrl();
+        } else if (tab.url != null && !tab.url.isEmpty()) {
+            tab.view.loadUrl(tab.url);
+        }
+    }
+
+    private void suspendActiveTab() {
+        BrowserTab tab = active();
+        if (tab == null || tab.view == null) return;
+        try {
+            Bundle state = new Bundle();
+            tab.view.saveState(state);
+            tab.savedState = state;
+            if (tab.view.getUrl() != null) tab.url = tab.view.getUrl();
+            if (tab.view.getTitle() != null) tab.title = tab.view.getTitle();
+        } catch (Exception ignored) { }
+        if (tab.view.getParent() instanceof ViewGroup) ((ViewGroup) tab.view.getParent()).removeView(tab.view);
+        tab.view.stopLoading(); tab.view.onPause(); tab.view.destroy(); tab.view = null;
+    }
+
+    private BrowserTab createTabObject() {
+        suspendActiveTab();
+        BrowserTab tab = new BrowserTab(); tab.url = "about:blank"; tab.stealth = "stealth".equals(getDefaultMode());
+        if (tab.stealth) { if (!multiProfileSupported()) throw new IllegalStateException("Stealth tabs are unavailable because this WebView does not support MULTI_PROFILE."); tab.profileName = "axon_stealth_" + UUID.randomUUID().toString(); }
+        tabs.add(tab); activeIndex = tabs.size() - 1;
+        ensureWebView(tab); attachActiveTab(); updateChrome(); saveTabs(); return tab;
+    }
+
+    private void attachActiveTab() {
+        if (pageFrame == null || tabs.isEmpty()) return;
+        pageFrame.removeAllViews(); BrowserTab tab = active();
+        if (tab != null) {
+            ensureWebView(tab);
+            if (tab.view != null) {
+                if (tab.view.getParent() instanceof ViewGroup) ((ViewGroup) tab.view.getParent()).removeView(tab.view);
+                pageFrame.addView(tab.view, new FrameLayout.LayoutParams(-1, -1));
+                tab.view.onResume();
+            }
+        }
+        updateChrome();
+    }
+
+    private String normalizeAddress(String raw) {
+        String value = raw == null ? "" : raw.trim();
+        if (value.isEmpty()) return "https://www.google.com";
+        if (value.matches("(?i)^[a-z][a-z0-9+.-]*:.*") && !value.matches("(?i)^https?://.*")) return "https://www.google.com/search?q=" + encode(value);
+        if (value.contains(" ") || (!value.contains(".") && !value.equalsIgnoreCase("localhost"))) return "https://www.google.com/search?q=" + encode(value);
+        if (!value.matches("(?i)^https?://.*")) value = "https://" + value;
+        Uri uri = Uri.parse(value);
+        String scheme = uri.getScheme();
+        if (uri.getUserInfo() != null) { toast("Website addresses containing embedded usernames or passwords are blocked."); return "about:blank"; }
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) return "https://www.google.com/search?q=" + encode(raw);
+        return value;
+    }
+    private String encode(String value) { try { return URLEncoder.encode(value, "UTF-8"); } catch (Exception e) { return value; } }
+    private String safeHost(String url) { try { String host = Uri.parse(url).getHost(); return host == null ? "" : host; } catch (Exception e) { return ""; } }
+
+    public void navigate(String raw) {
+        if (active() == null) { createTabInternal(raw, true); return; }
+        String url = normalizeAddress(raw); address.setText(url); hideKeyboard(); active().view.loadUrl(url); saveTabs();
+    }
+    public void goBack() { BrowserTab t = active(); if (t != null && t.view.canGoBack()) t.view.goBack(); }
+    public void goForward() { BrowserTab t = active(); if (t != null && t.view.canGoForward()) t.view.goForward(); }
+    public void reload() { BrowserTab t = active(); if (t != null) t.view.reload(); }
+    public void stop() { BrowserTab t = active(); if (t != null) { t.view.stopLoading(); t.loading = false; updateChrome(); } }
+    public void newTab(String url) { newTab(url, "normal", null); }
+    public void newTab(String url, String kind, Boolean stealth) { createTabInternal(url, kind == null ? "normal" : kind, stealth, true); }
+    public String getDefaultMode() { return getSharedPreferences("axon_web_normal", MODE_PRIVATE).getString("defaultMode", "normal"); }
+    public JSONObject getSettingsState() { JSONObject out = new JSONObject(); try { out.put("defaultMode", getDefaultMode()); out.put("multiProfileSupported", multiProfileSupported()); out.put("homePage", tailPrefs().getString("homePage", "https://www.google.com")); out.put("searchEngine", tailPrefs().getString("searchEngine", "google")); out.put("newTabPage", tailPrefs().getString("newTabPage", "home")); out.put("textZoom", tailPrefs().getInt("textZoom", 100)); out.put("safeBrowsing", tailPrefs().getBoolean("safeBrowsing", true)); out.put("thirdPartyCookies", tailPrefs().getBoolean("thirdPartyCookies", true)); } catch (JSONException ignored) {} return out; }
+    public JSONObject setDefaultMode(String mode) {
+        if (!"normal".equals(mode) && !"stealth".equals(mode)) throw new IllegalArgumentException("defaultMode must be normal or stealth.");
+        if ("stealth".equals(mode) && !multiProfileSupported()) throw new IllegalStateException("Stealth default is unavailable because this WebView does not support MULTI_PROFILE.");
+        getSharedPreferences("axon_web_normal", MODE_PRIVATE).edit().putString("defaultMode", mode).apply();
+        return getSettingsState();
+    }
+    public void switchTab(int index) { if (index >= 0 && index < tabs.size() && index != activeIndex) { suspendActiveTab(); activeIndex = index; attachActiveTab(); saveTabs(); } }
+    public void closeTab(int index) {
+        if (index < 0 || index >= tabs.size()) return;
+        BrowserTab removed = tabs.get(index);
+        boolean closingActive = index == activeIndex;
+        if (closingActive) suspendActiveTab();
+        if (removed.view != null) { if (removed.view.getParent() instanceof ViewGroup) ((ViewGroup) removed.view.getParent()).removeView(removed.view); removed.view.stopLoading(); removed.view.destroy(); removed.view = null; }
+        rememberClosed(removed);
+        deleteEphemeralProfile(removed);
+        tabs.remove(index);
+        if (tabs.isEmpty()) { activeIndex = 0; createTabInternal("https://www.google.com", false); }
+        else { if (activeIndex >= tabs.size()) activeIndex = tabs.size() - 1; else if (index < activeIndex) activeIndex--; attachActiveTab(); }
+        saveTabs(); updateChrome();
+    }
+    // ---- WEB9: the long tail of owner commands. One dispatcher, small helpers, plain Android APIs only. ----
+    private final ArrayList<JSONObject> closedTabs = new ArrayList<>();
+    private android.speech.tts.TextToSpeech tts = null;
+    private boolean ttsReady = false;
+    private String pendingSpeech = null;
+    private String toolsScript = null;
+
+    private android.content.SharedPreferences tailPrefs() { return getSharedPreferences("axon_web_normal", MODE_PRIVATE); }
+    private JSONObject tailOk() { JSONObject o = new JSONObject(); try { o.put("ok", true); } catch (JSONException ignored) { } return o; }
+    private JSONObject tailPut(JSONObject o, String key, Object value) { try { o.put(key, value); } catch (JSONException ignored) { } return o; }
+    private JSONObject tailFail(String code, String message) {
+        JSONObject o = new JSONObject();
+        try { o.put("ok", false); o.put("error", code); o.put("message", message); } catch (JSONException ignored) { }
+        return o;
+    }
+    private boolean tailCleanHost(String host) {
+        if (host == null || host.isEmpty() || host.length() > 253) return false;
+        for (int i = 0; i < host.length(); i++) {
+            char c = host.charAt(i);
+            boolean ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-';
+            if (!ok) return false;
+        }
+        return true;
+    }
+    private String tailLoadAsset(String name) {
+        try (InputStream in = getAssets().open(name); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096];
+            int n;
+            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+            return out.toString("UTF-8");
+        } catch (IOException e) { return null; }
+    }
+    private void rememberClosed(BrowserTab t) {
+        if (t == null || t.axon || "incognito".equals(t.kind) || t.url == null || t.url.equals("about:blank")) return;
+        JSONObject row = new JSONObject();
+        try { row.put("url", t.url); row.put("title", t.title == null ? "" : t.title); row.put("stealth", t.stealth); } catch (JSONException ignored) { }
+        closedTabs.add(row);
+        while (closedTabs.size() > 20) closedTabs.remove(0);
+    }
+    private void tailPageTool(String name, JSONObject args, JsonDone done) {
+        BrowserTab tab = active();
+        if (tab == null) { done.done(tailFail("no-page", "There is no open tab.")); return; }
+        if (toolsScript == null) toolsScript = tailLoadAsset("axon_page_tools.js");
+        if (toolsScript == null) { done.done(tailFail("tools-missing", "The page tools script is missing from the app assets.")); return; }
+        ensureWebView(tab);
+        if (tab.view == null) { done.done(tailFail("no-page", "The page is not available.")); return; }
+        tab.view.evaluateJavascript(toolsScript + "\n;window.__axonTools." + name + "(" + JSONObject.quote(args.toString()) + ")", value -> done.done(axonParse(value)));
+    }
+    private void tailClearCookies() {
+        CookieManager cookies = CookieManager.getInstance();
+        cookies.removeAllCookies(null);
+        cookies.flush();
+    }
+    private void tailClearCache() { for (BrowserTab tab : tabs) { if (tab.view != null) tab.view.clearCache(true); } }
+
+    public void runTail(String id, JSONObject args, JsonDone done) {
+        try {
+            switch (id) {
+                case "navigation.home": navigate(tailPrefs().getString("homePage", "https://www.google.com")); done.done(tailOk()); return;
+                case "navigation.openExternal": {
+                    BrowserTab t = active();
+                    String u = t == null ? "" : (t.view != null && t.view.getUrl() != null ? t.view.getUrl() : t.url);
+                    if (u == null || !(u.startsWith("http://") || u.startsWith("https://"))) { done.done(tailFail("no-page", "There is no web page to open outside the browser.")); return; }
+                    android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(u));
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                    done.done(tailOk()); return;
+                }
+                case "navigation.fullscreen": {
+                    boolean on = args.optBoolean("enabled", true);
+                    int flags = on ? (android.view.View.SYSTEM_UI_FLAG_FULLSCREEN | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE) : android.view.View.SYSTEM_UI_FLAG_VISIBLE;
+                    getWindow().getDecorView().setSystemUiVisibility(flags);
+                    done.done(tailPut(tailOk(), "enabled", on)); return;
+                }
+                case "tabs.restoreClosed": {
+                    if (closedTabs.isEmpty()) { done.done(tailFail("nothing-to-restore", "There is no closed tab to restore.")); return; }
+                    JSONObject c = closedTabs.remove(closedTabs.size() - 1);
+                    createTabInternal(c.optString("url", "about:blank"), "normal", Boolean.valueOf(c.optBoolean("stealth", false)), true);
+                    done.done(tailPut(tailOk(), "url", c.optString("url", ""))); return;
+                }
+                case "tabs.listRecent": {
+                    JSONArray rows = new JSONArray();
+                    for (int i = closedTabs.size() - 1; i >= 0; i--) rows.put(closedTabs.get(i));
+                    done.done(tailPut(tailOk(), "items", rows)); return;
+                }
+                case "tabs.pin": {
+                    int index = args.optInt("index", -1);
+                    if (index < 0 || index >= tabs.size()) { done.done(tailFail("bad-index", "There is no tab with that number.")); return; }
+                    BrowserTab t = tabs.get(index);
+                    if (t.axon) { done.done(tailFail("axon-tab", "AXON's own tab cannot be pinned.")); return; }
+                    t.pinned = args.optBoolean("pinned", true);
+                    updateChrome();
+                    done.done(tailPut(tailOk(), "pinned", t.pinned)); return;
+                }
+                case "tabs.suspend": {
+                    int index = args.optInt("index", -1);
+                    if (index < 0 || index >= tabs.size() || index == activeIndex) { done.done(tailFail("bad-index", "Only a tab that is not the open one can be suspended.")); return; }
+                    BrowserTab t = tabs.get(index);
+                    if (t.axon) { done.done(tailFail("axon-tab", "AXON's own tab cannot be suspended.")); return; }
+                    if (t.view != null) {
+                        try { Bundle state = new Bundle(); t.view.saveState(state); t.savedState = state; } catch (Exception ignored) { }
+                        t.view.stopLoading(); t.view.onPause(); t.view.destroy(); t.view = null;
+                    }
+                    done.done(tailOk()); return;
+                }
+                case "tabs.restoreSession": {
+                    JSONArray saved = new JSONArray(tailPrefs().getString("tabs", "[]"));
+                    ArrayList<String> open = new ArrayList<>();
+                    for (BrowserTab t : tabs) open.add(t.url);
+                    int before = activeIndex, opened = 0;
+                    for (int i = 0; i < saved.length() && opened < 20; i++) {
+                        JSONObject item = saved.optJSONObject(i);
+                        if (item == null) continue;
+                        String url = item.optString("url", "");
+                        if (url.isEmpty() || open.contains(url)) continue;
+                        createTabInternal(url, "normal", Boolean.valueOf(item.optBoolean("stealth", false)), true);
+                        open.add(url); opened++;
+                    }
+                    if (opened > 0 && before >= 0 && before < tabs.size()) switchTab(before);
+                    done.done(tailPut(tailOk(), "opened", opened)); return;
+                }
+                case "downloads.retry": {
+                    long old = parseDownloadId(args.optString("id", ""));
+                    DownloadManager manager = downloadManager();
+                    android.database.Cursor c = manager.query(new DownloadManager.Query().setFilterById(old));
+                    try {
+                        if (c == null || !c.moveToFirst()) { done.done(tailFail("not-found", "That download is not in the download list.")); return; }
+                        String uri = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_URI));
+                        String title = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE));
+                        DownloadManager.Request request = new DownloadManager.Request(Uri.parse(uri));
+                        request.setTitle(title);
+                        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                        request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Axon/" + title);
+                        long fresh = manager.enqueue(request);
+                        downloadIds.add(fresh); saveDownloadIds();
+                        done.done(tailOk()); return;
+                    } finally { if (c != null) c.close(); }
+                }
+                case "downloads.openFolder": {
+                    android.content.Intent intent = new android.content.Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                    done.done(tailOk()); return;
+                }
+                case "page.capture": {
+                    BrowserTab t = active();
+                    if (t == null || t.view == null) { done.done(tailFail("no-page", "There is no page to capture.")); return; }
+                    if ("incognito".equals(t.kind)) { done.done(tailFail("incognito", "Pictures of incognito pages are not saved.")); return; }
+                    int w = t.view.getWidth(), h = t.view.getHeight();
+                    java.io.File dir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+                    if (w <= 0 || h <= 0 || dir == null) { done.done(tailFail("no-page", "The page cannot be captured right now.")); return; }
+                    android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+                    t.view.draw(new android.graphics.Canvas(bitmap));
+                    java.io.File file = new java.io.File(dir, "axon-web-" + System.currentTimeMillis() + ".png");
+                    try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out); }
+                    done.done(tailPut(tailOk(), "path", file.getAbsolutePath())); return;
+                }
+                case "page.listen": {
+                    if (args.optBoolean("stop", false)) { if (tts != null) tts.stop(); done.done(tailOk()); return; }
+                    String text = args.optString("text", "");
+                    if (text.isEmpty()) { done.done(tailFail("no-text", "There is nothing to read aloud.")); return; }
+                    if (text.length() > 4000) text = text.substring(0, 4000);
+                    if (tts == null) {
+                        tts = new android.speech.tts.TextToSpeech(this, status -> {
+                            ttsReady = status == android.speech.tts.TextToSpeech.SUCCESS;
+                            if (ttsReady && pendingSpeech != null && tts != null) { tts.speak(pendingSpeech, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "axon-listen"); pendingSpeech = null; }
+                        });
+                    }
+                    if (ttsReady) tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "axon-listen"); else pendingSpeech = text;
+                    done.done(tailOk()); return;
+                }
+                case "page.copyText": {
+                    String text = args.optString("text", "");
+                    if (text.isEmpty()) { done.done(tailFail("no-text", "There is no text to copy.")); return; }
+                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AXON Web", text));
+                    done.done(tailOk()); return;
+                }
+                case "page.shareContent": {
+                    String text = args.optString("text", "");
+                    if (text.isEmpty()) { done.done(tailFail("no-text", "There is no text to share.")); return; }
+                    android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND);
+                    send.setType("text/plain"); send.putExtra(android.content.Intent.EXTRA_TEXT, text);
+                    android.content.Intent chooser = android.content.Intent.createChooser(send, "Share");
+                    chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(chooser);
+                    done.done(tailOk()); return;
+                }
+                case "page.extract": tailPageTool("extract", args, done); return;
+                case "page.selectText": tailPageTool("selectText", args, done); return;
+                case "page.selection": tailPageTool("selection", args, done); return;
+                case "page.readerMode": tailPageTool("readerMode", args, done); return;
+                case "page.mediaPlayPause": tailPageTool("media", tailPut(new JSONObject(), "action", "playPause"), done); return;
+                case "page.mediaSeek": tailPageTool("media", tailPut(tailPut(new JSONObject(), "action", "seek"), "delta", args.optDouble("delta", 0)), done); return;
+                case "page.mediaVolume": tailPageTool("media", tailPut(tailPut(new JSONObject(), "action", "volume"), "level", args.optDouble("level", 1)), done); return;
+                case "page.accessibility":
+                case "settings.accessibility": {
+                    int zoom = args.optInt("textZoom", 100);
+                    if (zoom < 50 || zoom > 200) { done.done(tailFail("bad-input", "Text size must be between 50 and 200 percent.")); return; }
+                    tailPrefs().edit().putInt("textZoom", zoom).apply();
+                    for (BrowserTab t : tabs) { if (t.view != null) t.view.getSettings().setTextZoom(zoom); }
+                    done.done(tailPut(tailOk(), "textZoom", zoom)); return;
+                }
+                case "site.clearData": {
+                    String host = args.optString("host", "").trim();
+                    if (!tailCleanHost(host)) { done.done(tailFail("bad-host", "Give a site name like example.com.")); return; }
+                    CookieManager cookies = CookieManager.getInstance();
+                    String origin = "https://" + host;
+                    String existing = cookies.getCookie(origin);
+                    if (existing != null) {
+                        for (String part : existing.split(";")) {
+                            String name = part.trim();
+                            int eq = name.indexOf('=');
+                            if (eq > 0) name = name.substring(0, eq);
+                            if (!name.isEmpty()) cookies.setCookie(origin, name + "=; Max-Age=0");
+                        }
+                    }
+                    cookies.flush();
+                    android.webkit.WebStorage.getInstance().deleteOrigin(origin);
+                    done.done(tailOk()); return;
+                }
+                case "site.manageCookies": {
+                    String action = args.optString("action", "");
+                    if ("thirdParty".equals(action)) {
+                        boolean allow = args.optBoolean("enabled", true);
+                        tailPrefs().edit().putBoolean("thirdPartyCookies", allow).apply();
+                        for (BrowserTab t : tabs) { if (t.view != null && t.profileName == null) CookieManager.getInstance().setAcceptThirdPartyCookies(t.view, allow); }
+                        done.done(tailPut(tailOk(), "thirdPartyCookies", allow)); return;
+                    }
+                    if ("clear".equals(action)) { runTail("site.clearData", args, done); return; }
+                    done.done(tailFail("bad-input", "Cookie contents are never read out. Use action thirdParty or clear."));
+                    return;
+                }
+                case "site.changePermission":
+                case "site.manageNotifications": {
+                    String host = args.optString("host", "").trim();
+                    String permission = "site.manageNotifications".equals(id) ? "notifications" : args.optString("permission", "");
+                    String decision = args.optString("decision", "");
+                    boolean knownPermission = permission.equals("camera") || permission.equals("microphone") || permission.equals("location") || permission.equals("notifications") || permission.equals("midi");
+                    boolean knownDecision = decision.equals("allow") || decision.equals("block") || decision.equals("ask");
+                    if (!tailCleanHost(host) || !knownPermission || !knownDecision) { done.done(tailFail("bad-input", "Give a site, a permission (camera, microphone, location, notifications, midi) and a decision (allow, block, ask).")); return; }
+                    JSONObject all = new JSONObject(tailPrefs().getString("siteDecisions", "{}"));
+                    JSONObject forHost = all.optJSONObject(host);
+                    if (forHost == null) forHost = new JSONObject();
+                    forHost.put(permission, decision);
+                    all.put(host, forHost);
+                    tailPrefs().edit().putString("siteDecisions", all.toString()).apply();
+                    done.done(tailPut(tailPut(tailOk(), "host", host), "decisions", forHost)); return;
+                }
+                case "site.getDecisions": {
+                    String host = args.optString("host", "").trim();
+                    JSONObject all = new JSONObject(tailPrefs().getString("siteDecisions", "{}"));
+                    JSONObject forHost = all.optJSONObject(host);
+                    done.done(tailPut(tailPut(tailOk(), "host", host), "decisions", forHost == null ? new JSONObject() : forHost)); return;
+                }
+                case "security.safeBrowsingSettings": {
+                    boolean on = args.optBoolean("enabled", true);
+                    tailPrefs().edit().putBoolean("safeBrowsing", on).apply();
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { for (BrowserTab t : tabs) { if (t.view != null) t.view.getSettings().setSafeBrowsingEnabled(on); } }
+                    done.done(tailPut(tailOk(), "safeBrowsing", on)); return;
+                }
+                case "settings.homePage":
+                case "settings.newTabPage": {
+                    String url = args.optString("url", "").trim();
+                    boolean blank = "settings.newTabPage".equals(id) && (url.equals("blank") || url.equals("home"));
+                    if (!blank && !(url.startsWith("https://") || url.startsWith("http://"))) { done.done(tailFail("bad-url", "Give an http or https address.")); return; }
+                    tailPrefs().edit().putString("settings.homePage".equals(id) ? "homePage" : "newTabPage", url).apply();
+                    done.done(tailPut(tailOk(), "url", url)); return;
+                }
+                case "settings.searchEngine": {
+                    String engine = args.optString("engine", "");
+                    if (!(engine.equals("google") || engine.equals("duckduckgo") || engine.equals("bing"))) { done.done(tailFail("bad-input", "Choose google, duckduckgo or bing.")); return; }
+                    tailPrefs().edit().putString("searchEngine", engine).apply();
+                    done.done(tailPut(tailOk(), "searchEngine", engine)); return;
+                }
+                case "settings.clearBrowsingData": {
+                    JSONArray types = args.optJSONArray("types");
+                    if (types == null || types.length() == 0) { done.done(tailFail("bad-input", "Say what to clear: history, cookies, cache, siteData.")); return; }
+                    for (int i = 0; i < types.length(); i++) {
+                        String type = types.optString(i, "");
+                        if (type.equals("history")) clearHistory();
+                        else if (type.equals("cookies")) tailClearCookies();
+                        else if (type.equals("cache")) tailClearCache();
+                        else if (type.equals("siteData")) android.webkit.WebStorage.getInstance().deleteAllData();
+                        else { done.done(tailFail("bad-input", "Unknown kind of data: " + type)); return; }
+                    }
+                    done.done(tailOk()); return;
+                }
+                case "settings.clearCache": tailClearCache(); done.done(tailOk()); return;
+                case "settings.exportData": {
+                    JSONObject out = new JSONObject();
+                    JSONArray b = new JSONArray(); for (JSONObject item : bookmarks) b.put(item);
+                    JSONArray r = new JSONArray(); for (JSONObject item : readingList) r.put(item);
+                    JSONArray f = new JSONArray(); for (String folder : bookmarkFolders) f.put(folder);
+                    out.put("bookmarks", b); out.put("readingList", r); out.put("folders", f);
+                    done.done(tailPut(tailOk(), "json", out.toString())); return;
+                }
+                case "settings.importData": {
+                    JSONObject data = new JSONObject(args.optString("json", "{}"));
+                    JSONArray b = data.optJSONArray("bookmarks"), r = data.optJSONArray("readingList"), f = data.optJSONArray("folders");
+                    int added = 0;
+                    if (b != null) for (int i = 0; i < b.length() && bookmarks.size() < 2000; i++) {
+                        JSONObject item = b.optJSONObject(i);
+                        if (item == null) continue;
+                        String url = item.optString("url", "");
+                        if (!(url.startsWith("https://") || url.startsWith("http://"))) continue;
+                        boolean known = false;
+                        for (JSONObject have : bookmarks) { if (url.equals(have.optString("url"))) { known = true; break; } }
+                        if (!known) { bookmarks.add(item); added++; }
+                    }
+                    if (r != null) for (int i = 0; i < r.length() && readingList.size() < 2000; i++) {
+                        JSONObject item = r.optJSONObject(i);
+                        if (item == null) continue;
+                        String url = item.optString("url", "");
+                        if (!(url.startsWith("https://") || url.startsWith("http://"))) continue;
+                        boolean known = false;
+                        for (JSONObject have : readingList) { if (url.equals(have.optString("url"))) { known = true; break; } }
+                        if (!known) { readingList.add(item); added++; }
+                    }
+                    if (f != null) for (int i = 0; i < f.length() && bookmarkFolders.size() < 200; i++) {
+                        String folder = f.optString(i, "");
+                        boolean known = folder.isEmpty();
+                        for (String have : bookmarkFolders) { if (have.equalsIgnoreCase(folder)) { known = true; break; } }
+                        if (!known) bookmarkFolders.add(folder);
+                    }
+                    saveJson("bookmarks", bookmarks); saveJson("readingList", readingList); saveBookmarkFolders();
+                    done.done(tailPut(tailOk(), "added", added)); return;
+                }
+                case "settings.resetBrowser": {
+                    tailPrefs().edit().remove("homePage").remove("searchEngine").remove("newTabPage").remove("textZoom").remove("safeBrowsing").remove("thirdPartyCookies").remove("siteDecisions").putString("defaultMode", "normal").apply();
+                    clearHistory(); tailClearCookies(); tailClearCache(); android.webkit.WebStorage.getInstance().deleteAllData();
+                    closedTabs.clear();
+                    for (BrowserTab t : tabs) { if (t.view != null) { t.view.getSettings().setTextZoom(100); } }
+                    done.done(tailOk()); return;
+                }
+                case "settings.defaultBrowser": {
+                    android.content.Intent intent = new android.content.Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS);
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                    done.done(tailOk()); return;
+                }
+                case "credentials.openManager": {
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) { done.done(tailFail("unsupported", "This Android version has no autofill service setting.")); return; }
+                    android.content.Intent intent = new android.content.Intent(android.provider.Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE);
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                    done.done(tailOk()); return;
+                }
+                case "diagnostics.view": {
+                    JSONObject out = tailOk();
+                    out.put("sdk", Build.VERSION.SDK_INT);
+                    out.put("multiProfileSupported", multiProfileSupported());
+                    out.put("tabs", tabs.size()); out.put("history", history.size()); out.put("bookmarks", bookmarks.size()); out.put("readingList", readingList.size()); out.put("closedTabs", closedTabs.size());
+                    out.put("axonActive", axonTabIndex() >= 0);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        android.content.pm.PackageInfo web = WebView.getCurrentWebViewPackage();
+                        if (web != null) { out.put("webViewPackage", web.packageName); out.put("webViewVersion", web.versionName); }
+                    }
+                    done.done(out); return;
+                }
+                default: done.done(tailFail("unknown-command", "This browser command is not available.")); return;
+            }
+        } catch (Exception e) {
+            done.done(tailFail("failed", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+        }
+    }
+
+    // ---- AXON own browsing session (WEB8): an isolated, throwaway incognito tab that only AXON drives ----
+    public interface JsonDone { void done(JSONObject value); }
+    private String axonScript = null;
+    private String axonLastAction = "";
+    private int axonActionCount = 0;
+
+    private int axonTabIndex() {
+        for (int i = 0; i < tabs.size(); i++) { if (tabs.get(i).axon) return i; }
+        return -1;
+    }
+
+    private String axonAgentScript() {
+        if (axonScript != null) return axonScript;
+        try (InputStream in = getAssets().open("axon_page_agent.js"); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096];
+            int n;
+            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+            axonScript = out.toString("UTF-8");
+        } catch (IOException e) { axonScript = null; }
+        return axonScript;
+    }
+
+    public JSONObject axonOpen(String url) {
+        int index = axonTabIndex();
+        if (index < 0) {
+            createTabInternal(url, "incognito", Boolean.FALSE, false);
+            index = activeIndex;
+            tabs.get(index).axon = true;
+            axonActionCount = 0;
+        } else {
+            if (index != activeIndex) switchTab(index);
+            navigate(url);
+        }
+        axonLastAction = "open";
+        updateChrome();
+        return axonState();
+    }
+
+    public JSONObject axonState() {
+        JSONObject out = new JSONObject();
+        int index = axonTabIndex();
+        try {
+            out.put("active", index >= 0);
+            out.put("tabIndex", index);
+            out.put("actionCount", axonActionCount);
+            out.put("lastAction", axonLastAction);
+            if (index >= 0) {
+                BrowserTab t = tabs.get(index);
+                String profile = t.profileName == null ? "" : t.profileName;
+                out.put("url", t.view != null && t.view.getUrl() != null ? t.view.getUrl() : t.url);
+                out.put("title", t.view != null && t.view.getTitle() != null ? t.view.getTitle() : t.title);
+                JSONObject identity = new JSONObject();
+                identity.put("owner", "AXON");
+                identity.put("sessionId", profile);
+                identity.put("engineContextId", profile);
+                identity.put("cookiePartitionId", profile);
+                identity.put("storagePartitionId", profile);
+                identity.put("credentialStoreId", JSONObject.NULL);
+                identity.put("isolationKind", "ENGINE_PROFILE");
+                identity.put("isolationVerified", multiProfileSupported() && !profile.isEmpty());
+                out.put("identity", identity);
+            }
+        } catch (JSONException ignored) { }
+        return out;
+    }
+
+    public JSONObject axonRelease() {
+        int index = axonTabIndex();
+        if (index >= 0) closeTab(index);
+        axonLastAction = "release";
+        axonActionCount = 0;
+        return axonState();
+    }
+
+    public void axonSnapshot(JsonDone done) { axonRun("window.__axonAgent.snapshot()", "snapshot", done); }
+
+    public void axonAct(JSONObject action, JsonDone done) {
+        String type = action == null ? "" : action.optString("type", "");
+        if (!(type.equals("click") || type.equals("type") || type.equals("select") || type.equals("scroll"))) {
+            done.done(axonFail("bad-action", "Action type must be click, type, select or scroll."));
+            return;
+        }
+        if (type.equals("type") && looksLikeCardNumber(action.optString("text", ""))) {
+            done.done(axonFail("card-number-refused", "AXON never types what looks like a card number."));
+            return;
+        }
+        axonRun("window.__axonAgent.act(" + JSONObject.quote(action.toString()) + ")", type, done);
+    }
+
+    private void axonRun(String call, String label, JsonDone done) {
+        int index = axonTabIndex();
+        if (index < 0) { done.done(axonFail("no-axon-session", "No AXON browsing session is open.")); return; }
+        String script = axonAgentScript();
+        if (script == null) { done.done(axonFail("agent-script-missing", "The page agent script is missing from the app assets.")); return; }
+        if (index != activeIndex) switchTab(index);
+        BrowserTab tab = tabs.get(index);
+        ensureWebView(tab);
+        if (tab.view == null) { done.done(axonFail("no-page", "The AXON page is not available.")); return; }
+        axonLastAction = label;
+        axonActionCount++;
+        tab.view.evaluateJavascript(script + "\n;" + call, value -> done.done(axonParse(value)));
+    }
+
+    private JSONObject axonParse(String value) {
+        try {
+            Object decoded = new JSONTokener(value == null ? "null" : value).nextValue();
+            if (decoded instanceof String) return new JSONObject((String) decoded);
+            if (decoded instanceof JSONObject) return (JSONObject) decoded;
+        } catch (JSONException ignored) { }
+        return axonFail("bad-agent-result", "The page returned no readable result.");
+    }
+
+    private JSONObject axonFail(String code, String message) {
+        JSONObject out = new JSONObject();
+        try { out.put("ok", false); out.put("error", code); out.put("message", message); } catch (JSONException ignored) { }
+        return out;
+    }
+
+    private boolean looksLikeCardNumber(String text) {
+        int digits = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c >= '0' && c <= '9') digits++;
+            else if (c != ' ' && c != '-') return false;
+        }
+        return digits >= 13 && digits <= 19;
+    }
+
+    public void findInPage(String text) { BrowserTab t = active(); if (t != null && text != null) t.view.findAllAsync(text); }
+    public void zoomBy(int delta) { BrowserTab t = active(); if (t != null) t.view.zoomBy(delta); }
+    public void setDesktopSite(boolean enabled) {
+        desktopSite = enabled; BrowserTab t = active(); if (t == null) return;
+        String defaultAgent = WebSettings.getDefaultUserAgent(this);
+        String desktopAgent = defaultAgent.replaceAll("\\s*\\(Linux; Android [^)]*\\)", " (X11; Linux x86_64)")
+            .replace("Version/4.0 ", "").replace(" Mobile", "").replace("; wv", "");
+        t.view.getSettings().setUserAgentString(enabled ? desktopAgent : defaultAgent);
+        t.view.reload();
+    }
+
+    private void updateChrome() {
+        BrowserTab t = active(); if (t == null || address == null) return;
+        if (!address.hasFocus()) address.setText(t.url.startsWith("about:") ? "" : t.url);
+        if (tabsButton != null) tabsButton.setText("Tabs " + tabs.size());
+        if (status != null) status.setText(t.axon ? "AXON is browsing" : (t.loading ? "Loading…" : (t.title == null ? safeHost(t.url) : t.title)));
+    }
+    private void hideKeyboard() { try { ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(address.getWindowToken(), 0); address.clearFocus(); } catch (Exception ignored) {} }
+
+    private void showTabs() {
+        String[] labels = new String[tabs.size()];
+        for (int i = 0; i < tabs.size(); i++) { BrowserTab t = tabs.get(i); labels[i] = (i == activeIndex ? "✓ " : "") + (t.title == null ? t.url : t.title); }
+        new AlertDialog.Builder(this).setTitle("Open tabs").setItems(labels, (d, which) -> switchTab(which)).setPositiveButton("New tab", (d, w) -> newTab("https://www.google.com")).setNegativeButton("Close current", (d, w) -> closeTab(activeIndex)).show();
+    }
+    private void showMenu() {
+        String[] actions = {"Add bookmark", "Save to reading list", "Bookmarks", "Reading list", "History", "Downloads", "Copy URL", "Share URL", "Site information", "Print page", "Save as PDF", "Create bookmark folder", "Clear history", "Find in page", "Desktop site", "Reload", "Close browser"};
+        new AlertDialog.Builder(this).setTitle("Browser").setItems(actions, (d, which) -> {
+            switch (which) {
+                case 0: try { addBookmark(active().title, active().url); toast("Bookmark saved"); } catch (Exception e) { toast(e.getMessage()); } break;
+                case 1: try { addToReadingList(active().title, active().url); toast("Saved to reading list"); } catch (Exception e) { toast(e.getMessage()); } break;
+                case 2: showBookmarks(); break;
+                case 3: showReadingList(); break;
+                case 4: showHistory(); break;
+                case 5: showDownloads(); break;
+                case 6: copyCurrentUrl(); break;
+                case 7: shareCurrentUrl(); break;
+                case 8: showSiteInfo(); break;
+                case 9: printCurrentPage(false); break;
+                case 10: printCurrentPage(true); break;
+                case 11: showCreateBookmarkFolderDialog(); break;
+                case 12: showClearHistoryDialog(); break;
+                case 13: showFindDialog(); break;
+                case 14: setDesktopSite(!desktopSite); toast(desktopSite ? "Desktop site requested" : "Mobile site requested"); break;
+                case 15: reload(); break;
+                case 16: finish(); break;
+            }
+        }).show();
+    }
+    private void showFindDialog() {
+        EditText input = new EditText(this); input.setSingleLine(true); input.setHint("Find on page");
+        new AlertDialog.Builder(this).setTitle("Find in page").setView(input).setPositiveButton("Find", (d, w) -> findInPage(input.getText().toString())).setNegativeButton("Cancel", null).show();
+    }
+    private void showBookmarks() {
+        if (bookmarks.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Bookmarks").setMessage("No bookmarks saved yet.").setPositiveButton("Bookmark this page", (d, w) -> { try { addBookmark(active().title, active().url); toast("Bookmark saved"); } catch (Exception e) { toast(e.getMessage()); } }).setNegativeButton("Close", null).show();
+            return;
+        }
+        String[] labels = new String[bookmarks.size()];
+        for (int i=0;i<bookmarks.size();i++) {
+            JSONObject item = bookmarks.get(i); String folder = item.optString("folder", "");
+            labels[i] = (folder.isEmpty() ? "" : "[" + folder + "] ") + item.optString("title", item.optString("url"));
+        }
+        new AlertDialog.Builder(this).setTitle("Bookmarks").setItems(labels, (d, which) -> showBookmarkOptions(which)).setPositiveButton("New folder", (d, w) -> showCreateBookmarkFolderDialog()).setNegativeButton("Close", null).show();
+    }
+    private void showBookmarkOptions(int index) {
+        if (index < 0 || index >= bookmarks.size()) return;
+        String[] actions = {"Open", "Edit", "Move to folder", "Remove"};
+        new AlertDialog.Builder(this).setTitle(bookmarks.get(index).optString("title", "Bookmark")).setItems(actions, (d, which) -> {
+            if (which == 0) navigate(bookmarks.get(index).optString("url"));
+            else if (which == 1) showEditBookmarkDialog(index);
+            else if (which == 2) showMoveBookmarkDialog(index);
+            else if (which == 3) new AlertDialog.Builder(this).setMessage("Remove this bookmark?").setPositiveButton("Remove", (confirm, w) -> { removeBookmark(index); showBookmarks(); }).setNegativeButton("Cancel", null).show();
+        }).show();
+    }
+    private void showEditBookmarkDialog(int index) {
+        if (index < 0 || index >= bookmarks.size()) return;
+        JSONObject item = bookmarks.get(index);
+        LinearLayout form = new LinearLayout(this); form.setOrientation(LinearLayout.VERTICAL); form.setPadding(dp(20), dp(8), dp(20), 0);
+        EditText title = new EditText(this); title.setSingleLine(true); title.setHint("Bookmark name"); title.setText(item.optString("title"));
+        EditText url = new EditText(this); url.setSingleLine(true); url.setHint("https://website.example"); url.setText(item.optString("url"));
+        form.addView(title); form.addView(url);
+        new AlertDialog.Builder(this).setTitle("Edit bookmark").setView(form).setPositiveButton("Save", (d, w) -> { try { editBookmark(index, title.getText().toString(), url.getText().toString()); toast("Bookmark updated"); } catch (Exception e) { toast(e.getMessage()); } }).setNegativeButton("Cancel", null).show();
+    }
+    private void showMoveBookmarkDialog(int index) {
+        if (index < 0 || index >= bookmarks.size()) return;
+        String[] folders = new String[bookmarkFolders.size() + 1]; folders[0] = "No folder";
+        for (int i=0;i<bookmarkFolders.size();i++) folders[i + 1] = bookmarkFolders.get(i);
+        new AlertDialog.Builder(this).setTitle("Move bookmark").setItems(folders, (d, which) -> { try { moveBookmark(index, which == 0 ? "" : folders[which]); toast("Bookmark moved"); } catch (Exception e) { toast(e.getMessage()); } }).setNegativeButton("Cancel", null).show();
+    }
+    private void showCreateBookmarkFolderDialog() {
+        EditText input = new EditText(this); input.setSingleLine(true); input.setHint("Folder name");
+        new AlertDialog.Builder(this).setTitle("Create bookmark folder").setView(input).setPositiveButton("Create", (d, w) -> { try { createBookmarkFolder(input.getText().toString()); toast("Folder created"); } catch (Exception e) { toast(e.getMessage()); } }).setNegativeButton("Cancel", null).show();
+    }
+    private void showReadingList() {
+        if (readingList.isEmpty()) { new AlertDialog.Builder(this).setTitle("Reading list").setMessage("No pages saved for later.").setPositiveButton("Close", null).show(); return; }
+        String[] labels = new String[readingList.size()];
+        for (int i=0;i<readingList.size();i++) labels[i] = (readingList.get(i).optBoolean("read", false) ? "✓ " : "○ ") + readingList.get(i).optString("title", readingList.get(i).optString("url"));
+        new AlertDialog.Builder(this).setTitle("Reading list").setItems(labels, (d, which) -> showReadingListItemOptions(which)).setNegativeButton("Close", null).show();
+    }
+    private void showReadingListItemOptions(int index) {
+        if (index < 0 || index >= readingList.size()) return;
+        boolean read = readingList.get(index).optBoolean("read", false);
+        String[] actions = {"Open", read ? "Mark as unread" : "Mark as read", "Remove"};
+        new AlertDialog.Builder(this).setTitle(readingList.get(index).optString("title", "Saved page")).setItems(actions, (d, which) -> {
+            if (which == 0) openReadingListItem(index);
+            else if (which == 1) { markReadingListRead(index, !read); showReadingList(); }
+            else if (which == 2) new AlertDialog.Builder(this).setMessage("Remove this saved page?").setPositiveButton("Remove", (confirm, w) -> { removeReadingListItem(index); showReadingList(); }).setNegativeButton("Cancel", null).show();
+        }).show();
+    }
+    private void showHistory() {
+        if (history.isEmpty()) { new AlertDialog.Builder(this).setTitle("Recent history").setMessage("No browsing history is available.").setPositiveButton("Close", null).show(); return; }
+        String[] labels = new String[history.size()]; for (int i=0;i<history.size();i++) labels[i] = history.get(i).optString("title", history.get(i).optString("url"));
+        new AlertDialog.Builder(this).setTitle("Recent history").setItems(labels, (d, which) -> navigate(history.get(which).optString("url"))).setPositiveButton("Clear all", (d, w) -> showClearHistoryDialog()).setNeutralButton("Clear by site", (d, w) -> showClearHistoryBySiteDialog()).setNegativeButton("Close", null).show();
+    }
+    private void showDownloads() {
+        JSONArray downloads = getDownloads();
+        if (downloads.length() == 0) { new AlertDialog.Builder(this).setTitle("Downloads").setMessage("No AXON Web downloads are recorded.").setPositiveButton("Close", null).show(); return; }
+        String[] labels = new String[downloads.length()];
+        for (int i=0;i<downloads.length();i++) {
+            JSONObject item = downloads.optJSONObject(i);
+            labels[i] = (item == null ? "Download" : item.optString("title", "Download")) + " — " + (item == null ? "UNKNOWN" : item.optString("status", "UNKNOWN"));
+        }
+        new AlertDialog.Builder(this).setTitle("Downloads").setItems(labels, (d, which) -> showDownloadOptions(which, downloads.optJSONObject(which))).setNegativeButton("Close", null).show();
+    }
+    private void showDownloadOptions(int index, JSONObject item) {
+        if (item == null) return;
+        boolean complete = "SUCCESSFUL".equals(item.optString("status"));
+        String[] actions = complete ? new String[]{"Open", "Share", "Delete"} : new String[]{"Cancel download", "Remove record"};
+        new AlertDialog.Builder(this).setTitle(item.optString("title", "Download")).setItems(actions, (d, which) -> {
+            try {
+                String downloadId = item.optString("id", "");
+                if (complete && which == 0) openDownload(downloadId);
+                else if (complete && which == 1) shareDownload(downloadId);
+                else if (complete && which == 2) deleteDownload(downloadId);
+                else if (!complete && which == 0) cancelDownload(downloadId);
+                else if (!complete && which == 1) deleteDownload(downloadId);
+                showDownloads();
+            } catch (Exception e) { toast(e.getMessage()); }
+        }).show();
+    }
+    private void showSiteInfo() {
+        JSONObject security = getSecurityDetails(); JSONObject permissions = getSitePermissions();
+        String message = "Address: " + security.optString("url", "") + "\nScheme: " + security.optString("scheme", "UNKNOWN")
+            + "\nHost: " + security.optString("host", "UNKNOWN")
+            + "\nCertificate available: " + security.optBoolean("certificatePresent", false)
+            + "\nCertificate subject: " + security.optString("subject", "Not exposed by this WebView")
+            + "\nCertificate issuer: " + security.optString("issuer", "Not exposed by this WebView")
+            + "\n\nSite permissions (fixed browser policy): " + permissions.optString("summary", "Camera, microphone and location are blocked.");
+        new AlertDialog.Builder(this).setTitle("Site information").setMessage(message).setPositiveButton("Close", null).show();
+    }
+    private void showClearHistoryDialog() {
+        new AlertDialog.Builder(this).setTitle("Clear browsing history").setMessage("Remove all saved history entries from AXON Web?").setPositiveButton("Clear", (d, w) -> { clearHistory(); toast("History cleared"); }).setNegativeButton("Cancel", null).show();
+    }
+    private void showClearHistoryBySiteDialog() {
+        EditText input = new EditText(this); input.setSingleLine(true); input.setHint("example.com");
+        new AlertDialog.Builder(this).setTitle("Clear history for a site").setView(input).setPositiveButton("Clear", (d, w) -> { try { clearHistoryBySite(input.getText().toString()); toast("Site history cleared"); } catch (Exception e) { toast(e.getMessage()); } }).setNegativeButton("Cancel", null).show();
+    }
+    private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show(); }
+
+    private void startDownload(BrowserTab tab, String url, String userAgent, String disposition, String mimeType) {
+        if (tab != null && "incognito".equals(tab.kind)) { toast("Downloads from incognito tabs are blocked so downloaded files do not outlive the private tab."); return; }
+        try {
+            String fileName = URLUtil.guessFileName(url, disposition, mimeType);
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+            request.setMimeType(mimeType); request.addRequestHeader("User-Agent", userAgent);
+            String cookie = tab != null && tab.profileName != null && tab.view != null
+                ? WebViewCompat.getProfile(tab.view).getCookieManager().getCookie(url)
+                : CookieManager.getInstance().getCookie(url);
+            if (cookie != null) request.addRequestHeader("Cookie", cookie);
+            request.setTitle(fileName); request.setDescription("Downloading with AXON Web");
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Axon/" + fileName);
+            long downloadId = ((DownloadManager) getSystemService(DOWNLOAD_SERVICE)).enqueue(request);
+            downloadIds.add(downloadId); saveDownloadIds();
+            toast("Download started: " + fileName);
+        } catch (Exception e) { toast("Download could not start: " + e.getMessage()); }
+    }
+
+    private void addHistory(String title, String url) {
+        if (url == null || !url.startsWith("http")) return;
+        try { JSONObject row = new JSONObject(); row.put("title", title == null ? url : title); row.put("url", url); row.put("visitedAt", System.currentTimeMillis()); history.add(0, row); while (history.size() > 500) history.remove(history.size()-1); saveJson("history", history); } catch (JSONException ignored) {}
+    }
+    private boolean isHttpUrl(String url) {
+        if (url == null) return false;
+        Uri parsed = Uri.parse(url);
+        String scheme = parsed.getScheme();
+        return parsed.getHost() != null && ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) && parsed.getUserInfo() == null;
+    }
+    public void addBookmark(String title, String url) {
+        if (active() != null && "incognito".equals(active().kind)) throw new IllegalStateException("Bookmarks from incognito tabs are not saved.");
+        if (!isHttpUrl(url)) throw new IllegalArgumentException("Only valid HTTP(S) page addresses can be bookmarked.");
+        for (Iterator<JSONObject> it = bookmarks.iterator(); it.hasNext();) if (url.equals(it.next().optString("url"))) it.remove();
+        try { JSONObject row = new JSONObject(); row.put("title", title == null || title.trim().isEmpty() ? url : title.trim()); row.put("url", url); row.put("addedAt", System.currentTimeMillis()); row.put("folder", ""); bookmarks.add(0, row); saveJson("bookmarks", bookmarks); } catch (JSONException ignored) {}
+    }
+    public void editBookmark(int index, String title, String url) {
+        if (index < 0 || index >= bookmarks.size()) throw new IllegalArgumentException("Bookmark index is out of range.");
+        if (!isHttpUrl(url)) throw new IllegalArgumentException("Only valid HTTP(S) page addresses can be bookmarked.");
+        JSONObject old = bookmarks.get(index);
+        for (int i = bookmarks.size() - 1; i >= 0; i--) if (i != index && url.equals(bookmarks.get(i).optString("url"))) bookmarks.remove(i);
+        try { old.put("title", title == null || title.trim().isEmpty() ? url : title.trim()); old.put("url", url); saveJson("bookmarks", bookmarks); } catch (JSONException ignored) {}
+    }
+    public void removeBookmark(int index) {
+        if (index < 0 || index >= bookmarks.size()) throw new IllegalArgumentException("Bookmark index is out of range.");
+        bookmarks.remove(index); saveJson("bookmarks", bookmarks);
+    }
+    public void createBookmarkFolder(String name) {
+        String clean = name == null ? "" : name.trim();
+        if (clean.isEmpty() || clean.length() > 48) throw new IllegalArgumentException("Folder name must contain 1 to 48 characters.");
+        for (String item : bookmarkFolders) if (item.equalsIgnoreCase(clean)) return;
+        bookmarkFolders.add(clean); saveBookmarkFolders();
+    }
+    public void moveBookmark(int index, String folder) {
+        if (index < 0 || index >= bookmarks.size()) throw new IllegalArgumentException("Bookmark index is out of range.");
+        String target = folder == null ? "" : folder.trim();
+        if (!target.isEmpty()) {
+            boolean exists = false; for (String item : bookmarkFolders) if (item.equals(target)) { exists = true; break; }
+            if (!exists) throw new IllegalArgumentException("The destination bookmark folder does not exist.");
+        }
+        try { bookmarks.get(index).put("folder", target); saveJson("bookmarks", bookmarks); } catch (JSONException ignored) {}
+    }
+    public JSONArray getBookmarks() { return new JSONArray(bookmarks); }
+    public JSONArray getBookmarkFolders() { JSONArray out = new JSONArray(); for (String folder : bookmarkFolders) out.put(folder); return out; }
+    private void saveBookmarkFolders() { JSONArray out = new JSONArray(); for (String folder : bookmarkFolders) out.put(folder); getSharedPreferences("axon_web_normal", MODE_PRIVATE).edit().putString("bookmarkFolders", out.toString()).apply(); }
+    public JSONArray getHistory(String query) {
+        JSONArray out = new JSONArray(); String q = query == null ? "" : query.toLowerCase();
+        for (JSONObject row : history) if (row.optString("url").toLowerCase().contains(q) || row.optString("title").toLowerCase().contains(q)) out.put(row);
+        return out;
+    }
+    public void clearHistory() { history.clear(); saveJson("history", history); for (BrowserTab tab : tabs) if (tab.view != null) tab.view.clearHistory(); }
+    public void clearHistoryBySite(String host) {
+        String target = host == null ? "" : host.trim().toLowerCase();
+        if (target.isEmpty() || target.contains("/") || target.contains(":")) throw new IllegalArgumentException("A site host is required.");
+        for (Iterator<JSONObject> it = history.iterator(); it.hasNext();) {
+            String found = Uri.parse(it.next().optString("url")).getHost();
+            if (found != null) { found = found.toLowerCase(); if (found.equals(target) || found.endsWith("." + target)) it.remove(); }
+        }
+        saveJson("history", history);
+    }
+    public void addToReadingList(String title, String url) {
+        if (active() != null && "incognito".equals(active().kind)) throw new IllegalStateException("Reading-list entries from incognito tabs are not saved.");
+        if (!isHttpUrl(url)) throw new IllegalArgumentException("Only valid HTTP(S) page addresses can be saved.");
+        for (JSONObject item : readingList) if (url.equals(item.optString("url"))) { try { item.put("title", title == null || title.trim().isEmpty() ? url : title.trim()); } catch (JSONException ignored) {} saveJson("readingList", readingList); return; }
+        try { JSONObject row = new JSONObject(); row.put("title", title == null || title.trim().isEmpty() ? url : title.trim()); row.put("url", url); row.put("addedAt", System.currentTimeMillis()); row.put("read", false); readingList.add(0, row); saveJson("readingList", readingList); } catch (JSONException ignored) {}
+    }
+    public void removeReadingListItem(int index) {
+        if (index < 0 || index >= readingList.size()) throw new IllegalArgumentException("Reading-list index is out of range.");
+        readingList.remove(index); saveJson("readingList", readingList);
+    }
+    public void markReadingListRead(int index, boolean read) {
+        if (index < 0 || index >= readingList.size()) throw new IllegalArgumentException("Reading-list index is out of range.");
+        try { readingList.get(index).put("read", read); saveJson("readingList", readingList); } catch (JSONException ignored) {}
+    }
+    public JSONArray getReadingList() { return new JSONArray(readingList); }
+    public void openReadingListItem(int index) {
+        if (index < 0 || index >= readingList.size()) throw new IllegalArgumentException("Reading-list index is out of range.");
+        navigate(readingList.get(index).optString("url"));
+    }
+    private DownloadManager downloadManager() { return (DownloadManager) getSystemService(DOWNLOAD_SERVICE); }
+    public JSONArray getDownloads() {
+        JSONArray out = new JSONArray(); DownloadManager manager = downloadManager();
+        for (Long id : new ArrayList<>(downloadIds)) {
+            Cursor cursor = null;
+            try {
+                cursor = manager.query(new DownloadManager.Query().setFilterById(id));
+                if (cursor == null || !cursor.moveToFirst()) continue;
+                int statusCode = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+                int reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON));
+                String statusText = statusCode == DownloadManager.STATUS_SUCCESSFUL ? "SUCCESSFUL"
+                    : statusCode == DownloadManager.STATUS_FAILED ? "FAILED"
+                    : statusCode == DownloadManager.STATUS_PAUSED ? "PAUSED" : "RUNNING";
+                JSONObject row = new JSONObject();
+                row.put("id", String.valueOf(id));
+                row.put("title", cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE)));
+                row.put("status", statusText); row.put("reason", reason);
+                row.put("mimeType", manager.getMimeTypeForDownloadedFile(id));
+                row.put("downloadedBytes", cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)));
+                row.put("totalBytes", cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)));
+                Uri file = manager.getUriForDownloadedFile(id); row.put("uri", file == null ? "" : file.toString());
+                out.put(row);
+            } catch (Exception ignored) {
+                // Missing DownloadManager rows are omitted instead of fabricated as complete.
+            } finally { if (cursor != null) cursor.close(); }
+        }
+        return out;
+    }
+    public void openDownload(String rawId) {
+        long id = parseDownloadId(rawId); Uri uri = downloadManager().getUriForDownloadedFile(id);
+        if (uri == null) throw new IllegalStateException("This download is not complete or its file is unavailable.");
+        String mime = downloadManager().getMimeTypeForDownloadedFile(id); if (mime == null || mime.trim().isEmpty()) mime = "*/*";
+        Intent intent = new Intent(Intent.ACTION_VIEW); intent.setDataAndType(uri, mime); intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivity(intent);
+    }
+    public void shareDownload(String rawId) {
+        long id = parseDownloadId(rawId); Uri uri = downloadManager().getUriForDownloadedFile(id);
+        if (uri == null) throw new IllegalStateException("This download is not complete or its file is unavailable.");
+        String mime = downloadManager().getMimeTypeForDownloadedFile(id); if (mime == null || mime.trim().isEmpty()) mime = "*/*";
+        Intent intent = new Intent(Intent.ACTION_SEND); intent.setType(mime); intent.putExtra(Intent.EXTRA_STREAM, uri); intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivity(Intent.createChooser(intent, "Share download"));
+    }
+    public void cancelDownload(String rawId) { removeDownload(rawId); }
+    public void deleteDownload(String rawId) { removeDownload(rawId); }
+    private long parseDownloadId(String rawId) {
+        try {
+            long id = Long.parseLong(rawId);
+            if (!downloadIds.contains(id)) throw new IllegalArgumentException("This download is not in the AXON Web download list.");
+            return id;
+        } catch (NumberFormatException error) {
+            throw new IllegalArgumentException("A valid download ID is required.");
+        }
+    }
+    private void removeDownload(String rawId) {
+        long id = parseDownloadId(rawId); downloadManager().remove(id); downloadIds.remove(id); saveDownloadIds();
+    }
+    private void saveDownloadIds() {
+        JSONArray out = new JSONArray(); for (Long id : downloadIds) out.put(id);
+        getSharedPreferences("axon_web_normal", MODE_PRIVATE).edit().putString("downloads", out.toString()).apply();
+    }
+    public void copyCurrentUrl() {
+        BrowserTab tab = active(); if (tab == null || !isHttpUrl(tab.url)) throw new IllegalStateException("There is no website address to copy.");
+        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AXON Web address", tab.url)); toast("Address copied");
+    }
+    public void shareCurrentUrl() {
+        BrowserTab tab = active(); if (tab == null || !isHttpUrl(tab.url)) throw new IllegalStateException("There is no website address to share.");
+        Intent intent = new Intent(Intent.ACTION_SEND); intent.setType("text/plain"); intent.putExtra(Intent.EXTRA_TEXT, tab.url);
+        startActivity(Intent.createChooser(intent, "Share page"));
+    }
+    public void printCurrentPage(boolean savePdf) {
+        BrowserTab tab = active(); if (tab == null || tab.view == null) throw new IllegalStateException("There is no page to print.");
+        android.print.PrintManager manager = (android.print.PrintManager) getSystemService(PRINT_SERVICE);
+        String title = tab.title == null || tab.title.trim().isEmpty() ? safeHost(tab.url) : tab.title;
+        String jobName = (savePdf ? "Save PDF - " : "Print - ") + title;
+        manager.print(jobName, tab.view.createPrintDocumentAdapter(jobName), new android.print.PrintAttributes.Builder()
+            .setMediaSize(android.print.PrintAttributes.MediaSize.ISO_A4).build());
+        if (savePdf) toast("Choose Save as PDF in the Android print options.");
+    }
+    public JSONObject getSecurityDetails() {
+        JSONObject out = new JSONObject(); BrowserTab tab = active();
+        if (tab == null) return out;
+        Uri uri = Uri.parse(tab.url); String scheme = uri.getScheme();
+        try {
+            out.put("url", tab.url); out.put("scheme", scheme == null ? "UNKNOWN" : scheme.toUpperCase());
+            out.put("host", uri.getHost() == null ? "" : uri.getHost());
+            android.net.http.SslCertificate cert = tab.view == null ? null : tab.view.getCertificate();
+            out.put("certificatePresent", cert != null);
+            out.put("subject", cert == null || cert.getIssuedTo() == null ? "" : cert.getIssuedTo().getDName());
+            out.put("issuer", cert == null || cert.getIssuedBy() == null ? "" : cert.getIssuedBy().getDName());
+        } catch (JSONException ignored) { }
+        return out;
+    }
+    public JSONObject getSitePermissions() {
+        JSONObject out = new JSONObject(); BrowserTab tab = active();
+        try {
+            String origin = "";
+            if (tab != null) { Uri uri = Uri.parse(tab.url); origin = uri.getScheme() + "://" + uri.getHost(); }
+            JSONArray permissions = new JSONArray();
+            for (String name : new String[]{"camera", "microphone", "geolocation"}) {
+                JSONObject item = new JSONObject(); item.put("name", name); item.put("state", "BLOCKED"); permissions.put(item);
+            }
+            out.put("origin", origin); out.put("permissions", permissions); out.put("summary", "Camera, microphone and geolocation are denied by the current browser host.");
+        } catch (JSONException ignored) { }
+        return out;
+    }
+    private JSONArray getGroupsJson() {
+        JSONArray out = new JSONArray();
+        for (BrowserTabGroup group : tabGroups) { JSONObject item = new JSONObject(); try { item.put("id", group.id); item.put("name", group.name); out.put(item); } catch (JSONException ignored) {} }
+        return out;
+    }
+    private JSONObject getGroupsState() {
+        JSONObject out = new JSONObject(); JSONArray groups = new JSONArray();
+        for (BrowserTabGroup group : tabGroups) {
+            JSONObject item = new JSONObject(); JSONArray indexes = new JSONArray();
+            for (int i=0;i<tabs.size();i++) if (group.id.equals(tabs.get(i).groupId)) indexes.put(i);
+            try { item.put("id",group.id); item.put("name",group.name); item.put("tabIndexes",indexes); groups.put(item); } catch(JSONException ignored) {}
+        }
+        try { out.put("groups",groups); } catch(JSONException ignored) {}
+        return out;
+    }
+    public JSONObject listGroups() { return getGroupsState(); }
+    public JSONObject createGroup(String name, JSONArray indexes) {
+        String clean = name == null ? "" : name.trim();
+        if (clean.isEmpty()) throw new IllegalArgumentException("Group name is required.");
+        BrowserTabGroup group = new BrowserTabGroup(UUID.randomUUID().toString(), clean);
+        if (indexes != null) {
+            for (int i=0;i<indexes.length();i++) { int index=indexes.optInt(i,-1); if(index<0 || index>=tabs.size()) throw new IllegalArgumentException("Tab index out of range: "+index); }
+        }
+        tabGroups.add(group);
+        if (indexes != null) for(int i=0;i<indexes.length();i++) tabs.get(indexes.optInt(i)).groupId=group.id;
+        saveTabs(); return getGroupsState();
+    }
+    public JSONObject renameGroup(String groupId, String name) {
+        BrowserTabGroup group=findGroup(groupId); String clean=name==null?"":name.trim();
+        if(clean.isEmpty()) throw new IllegalArgumentException("Group name is required.");
+        group.name=clean; saveTabs(); return getGroupsState();
+    }
+    public JSONObject moveTabToGroup(int index, String groupId) {
+        if(index<0 || index>=tabs.size()) throw new IllegalArgumentException("Tab index out of range.");
+        BrowserTabGroup group=findGroup(groupId); tabs.get(index).groupId=group.id; saveTabs(); return getState();
+    }
+    public JSONObject removeTabFromGroup(int index) {
+        if(index<0 || index>=tabs.size()) throw new IllegalArgumentException("Tab index out of range.");
+        tabs.get(index).groupId=null; saveTabs(); return getState();
+    }
+    public JSONObject deleteGroup(String groupId) {
+        BrowserTabGroup group=findGroup(groupId);
+        for(BrowserTab tab:tabs) if(group.id.equals(tab.groupId)) tab.groupId=null;
+        tabGroups.remove(group); saveTabs(); return getGroupsState();
+    }
+    public JSONObject closeGroup(String groupId) {
+        BrowserTabGroup group=findGroup(groupId);
+        for(int i=tabs.size()-1;i>=0;i--) if(group.id.equals(tabs.get(i).groupId)) closeTab(i);
+        tabGroups.remove(group); saveTabs(); return getState();
+    }
+    private BrowserTabGroup findGroup(String groupId) {
+        if(groupId==null || groupId.trim().isEmpty()) throw new IllegalArgumentException("groupId is required.");
+        for(BrowserTabGroup group:tabGroups) if(group.id.equals(groupId)) return group;
+        throw new IllegalArgumentException("Tab group not found: "+groupId);
+    }
+
+    public JSONObject getState() {
+        JSONObject out = new JSONObject(); BrowserTab t = active();
+        try { out.put("available", true); out.put("tabCount", tabs.size()); out.put("activeIndex", activeIndex); out.put("url", t == null ? "" : t.url); out.put("title", t == null ? "" : t.title); out.put("loading", t != null && t.loading); out.put("canGoBack", t != null && t.view.canGoBack()); out.put("canGoForward", t != null && t.view.canGoForward()); out.put("engine", "android-system-webview"); out.put("incognito", t != null && "incognito".equals(t.kind)); out.put("defaultMode", getDefaultMode());
+            JSONArray tabRows=new JSONArray();
+            for(int i=0;i<tabs.size();i++){ BrowserTab tab=tabs.get(i); JSONObject row=new JSONObject(); row.put("index",i); row.put("axon",tab.axon); row.put("pinned",tab.pinned); row.put("url",tab.url); row.put("title",tab.title); row.put("groupId",tab.groupId==null?JSONObject.NULL:tab.groupId); row.put("kind",tab.kind); row.put("stealth",tab.stealth); tabRows.put(row); }
+            out.put("tabs",tabRows); out.put("groups",getGroupsState().optJSONArray("groups")); } catch (JSONException ignored) {}
+        return out;
+    }
+    public void getPageText(ValueCallback<String> callback) {
+        BrowserTab t = active(); if (t == null) { callback.onReceiveValue(""); return; }
+        t.view.evaluateJavascript("(function(){return (document.body && document.body.innerText || '').slice(0,50000)})()", value -> {
+            String decoded = value == null ? "" : value;
+            try { Object parsed = new org.json.JSONTokener(decoded).nextValue(); if (parsed instanceof String) decoded = (String) parsed; }
+            catch (Exception ignored) { }
+            callback.onReceiveValue(decoded);
+        });
+    }
+
+    private void loadSavedData() {
+        android.content.SharedPreferences prefs = getSharedPreferences("axon_web_normal", MODE_PRIVATE);
+        try {
+            JSONArray savedTabs = new JSONArray(prefs.getString("tabs", "[]")); activeIndex = prefs.getInt("active", 0);
+            for (int i=0;i<savedTabs.length();i++) { JSONObject item=savedTabs.optJSONObject(i); BrowserTab t=new BrowserTab(); t.url=item==null?"https://www.google.com":item.optString("url","https://www.google.com"); t.title=item==null?t.url:item.optString("title",t.url); t.groupId=item==null?null:item.optString("groupId",null); t.kind="normal"; t.stealth=item!=null && item.optBoolean("stealth", false); t.profileName=t.stealth && item!=null ? item.optString("profileName", null) : null; if(t.stealth && (t.profileName==null || t.profileName.isEmpty())) t.profileName="axon_stealth_"+UUID.randomUUID().toString(); tabs.add(t); }
+            JSONArray savedGroups = new JSONArray(prefs.getString("tabGroups", "[]")); for(int i=0;i<savedGroups.length();i++){ JSONObject g=savedGroups.optJSONObject(i); if(g!=null) tabGroups.add(new BrowserTabGroup(g.optString("id"),g.optString("name","Group"))); }
+            JSONArray savedHistory = new JSONArray(prefs.getString("history", "[]")); for(int i=0;i<savedHistory.length();i++) history.add(savedHistory.getJSONObject(i));
+            JSONArray savedBookmarks = new JSONArray(prefs.getString("bookmarks", "[]")); for(int i=0;i<savedBookmarks.length();i++) bookmarks.add(savedBookmarks.getJSONObject(i));
+            JSONArray savedFolders = new JSONArray(prefs.getString("bookmarkFolders", "[]")); for(int i=0;i<savedFolders.length();i++) bookmarkFolders.add(savedFolders.getString(i));
+            JSONArray savedReading = new JSONArray(prefs.getString("readingList", "[]")); for(int i=0;i<savedReading.length();i++) readingList.add(savedReading.getJSONObject(i));
+            JSONArray savedDownloads = new JSONArray(prefs.getString("downloads", "[]")); for(int i=0;i<savedDownloads.length();i++) downloadIds.add(savedDownloads.getLong(i));
+        } catch (Exception ignored) { tabs.clear(); tabGroups.clear(); history.clear(); bookmarks.clear(); bookmarkFolders.clear(); readingList.clear(); downloadIds.clear(); }
+        if (activeIndex < 0 || activeIndex >= tabs.size()) activeIndex = 0;
+    }
+    private void saveTabs() {
+        JSONArray array = new JSONArray();
+        JSONArray savedGroups = new JSONArray();
+        int savedActiveIndex = 0;
+        int savedIndex = 0;
+        for (int i=0;i<tabs.size();i++) { BrowserTab t=tabs.get(i); if ("incognito".equals(t.kind)) continue; if (i==activeIndex) savedActiveIndex=savedIndex; JSONObject item = new JSONObject(); try { item.put("url", t.url); item.put("title", t.title); if(t.groupId!=null) item.put("groupId",t.groupId); item.put("kind","normal"); item.put("stealth",t.stealth); if(t.profileName!=null) item.put("profileName",t.profileName); array.put(item); } catch (JSONException ignored) {} savedIndex++; }
+        for (BrowserTabGroup group : tabGroups) { boolean hasSavedTab=false; for (BrowserTab tab : tabs) if (!"incognito".equals(tab.kind) && group.id.equals(tab.groupId)) { hasSavedTab=true; break; } if (hasSavedTab) { JSONObject row=new JSONObject(); try { row.put("id",group.id); row.put("name",group.name); savedGroups.put(row); } catch (JSONException ignored) {} } }
+        getSharedPreferences("axon_web_normal", MODE_PRIVATE).edit().putString("tabs", array.toString()).putString("tabGroups", savedGroups.toString()).putInt("active", savedActiveIndex < array.length() ? savedActiveIndex : 0).apply();
+    }
+    private void saveJson(String key, ArrayList<JSONObject> rows) { JSONArray array = new JSONArray(rows); getSharedPreferences("axon_web_normal", MODE_PRIVATE).edit().putString(key, array.toString()).apply(); }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == FILE_CHOOSER_REQUEST && uploadCallback != null) {
+            Uri[] results = null;
+            if (resultCode == RESULT_OK && data != null) {
+                if (data.getClipData() != null) { int count=data.getClipData().getItemCount(); results=new Uri[count]; for(int i=0;i<count;i++) results[i]=data.getClipData().getItemAt(i).getUri(); }
+                else if (data.getData() != null) results = new Uri[]{data.getData()};
+            }
+            uploadCallback.onReceiveValue(results); uploadCallback = null;
+        }
+    }
+    @Override public void onBackPressed() { BrowserTab t=active(); if(t!=null && t.view.canGoBack()) t.view.goBack(); else finish(); }
+    @Override protected void onPause() { super.onPause(); BrowserTab t=active(); if(t!=null && t.view!=null) t.view.onPause(); saveTabs(); }
+    @Override protected void onResume() { super.onResume(); BrowserTab t=active(); if(t!=null && t.view!=null) t.view.onResume(); }
+    @Override protected void onDestroy() {
+        saveTabs(); for(BrowserTab t:tabs) { if(t.view!=null) { if(t.view.getParent() instanceof ViewGroup) ((ViewGroup)t.view.getParent()).removeView(t.view); t.view.stopLoading(); t.view.destroy(); t.view=null; } try { deleteEphemeralProfile(t); } catch (RuntimeException error) { android.util.Log.e("AxonBrowser", "Incognito profile cleanup failed; startup cleanup will retry.", error); } }
+        if (tts != null) { tts.shutdown(); tts = null; }
+        tabs.clear(); if(instance==this) instance=null; super.onDestroy();
+    }
+}

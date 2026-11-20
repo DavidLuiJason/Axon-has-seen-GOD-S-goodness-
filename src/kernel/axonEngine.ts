@@ -1,0 +1,46 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The one task engine the app uses, with its real actions registered.
+ * Test actions never go here.
+ */
+
+import { readDeviceProfile } from './deviceProfile';
+import { createTaskEngine, type TaskEngine, type TaskEngineOptions } from './taskEngine';
+import { TEXT_COUNT_ACTION } from './textCount';
+import { TEXT_CASE_ACTION } from '../tools/textCaseAction';
+import { TEXT_SORT_ACTION } from '../tools/textSortAction';
+import { NUMBER_WORDS_ACTION } from '../tools/numberWordsAction';
+import { ENCODE_ACTION } from '../tools/encodeAction';
+import { HASH_ACTION } from '../tools/hashAction';
+import { QR_ACTION } from '../tools/qrAction';
+import { PASSWORD_ACTION } from '../tools/passwordAction';
+import { RANDOM_ACTION } from '../tools/randomAction';
+import { CALCULATE_ACTION } from '../tools/calculateAction';
+import { PERCENT_ACTION } from '../tools/percentAction';
+import { TEXT_REPLACE_ACTION } from '../tools/textReplaceAction';
+
+export function createAxonEngine(options: TaskEngineOptions = {}): TaskEngine {
+  const engine = createTaskEngine({ readProfile: () => readDeviceProfile(), ...options });
+  engine.registerAction(TEXT_COUNT_ACTION);
+  engine.registerAction(TEXT_CASE_ACTION);
+  engine.registerAction(TEXT_SORT_ACTION);
+  engine.registerAction(NUMBER_WORDS_ACTION);
+  engine.registerAction(ENCODE_ACTION);
+  engine.registerAction(HASH_ACTION);
+  engine.registerAction(QR_ACTION);
+  engine.registerAction(PASSWORD_ACTION);
+  engine.registerAction(RANDOM_ACTION);
+  engine.registerAction(CALCULATE_ACTION);
+  engine.registerAction(PERCENT_ACTION);
+  engine.registerAction(TEXT_REPLACE_ACTION);
+  return engine;
+}
+
+let shared: TaskEngine | null = null;
+
+export function getAxonEngine(): TaskEngine {
+  if (!shared) shared = createAxonEngine();
+  return shared;
+}

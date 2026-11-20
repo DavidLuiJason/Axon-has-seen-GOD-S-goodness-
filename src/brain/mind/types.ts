@@ -1,0 +1,59 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * AXON Mind B1: typed structure for the staged brain pipeline.
+ */
+import type { RouterResult } from './router/routerShadow';
+import type { BrainReply, Place } from '../types';
+import type { SenseHint } from '../knowledge/slot';
+import type { SenseReading } from './meaning/sense/senseTypes';
+import type { MeaningStructure } from './meaning/structure/glueTypes';
+import type { LanguageReading } from './meaning/languageCheck';
+import type { TeachingReading } from './meaning/teach/teachTypes';
+import type { ToneReading } from './meaning/tone/toneTypes';
+import type { PieceResolution } from './resolve/clauseInputsTypes';
+import type { FeedValue } from './bind/bindFeed';
+
+export type StageId = 'intake' | 'reading' | 'analysis' | 'meaning' | 'resolution' | 'dialogue' | 'planning' | 'execution' | 'verification' | 'response';
+export type StageState = 'ran' | 'passed-through' | 'not-built';
+export interface Utterance { id: string; text: string; place: Place; at: number }
+export interface Segment { kind: 'language' | 'material'; text: string; start: number; end: number }
+export interface Token {
+  surface: string;
+  lemma: string;
+  alternativeLemmas?: string[];
+  /** RESOLVE-TC: the part of alternativeLemmas that is a NOUN base of this surface (e.g. 'words' is itself a headword, its noun base is 'word'). Present only when there is one. */
+  alternativeNounLemmas?: string[];
+  /** LIVE8-2b part 1c: a hyphenated word the dictionary does not know ("kebab-case") keeps its known parts as a SECOND reading; the token itself stays unknown. */
+  hyphenParts?: { lemma: string; partsOfSpeech: string[] }[];
+  start: number;
+  end: number;
+  knowledge?: 'known' | 'unknown' | 'not-checked';
+  partsOfSpeech?: string[];
+  synsetIds?: string[];
+  /** B03B4: short evidence of each sense, for choosing a sense from the words around (present when the word has two or more senses). */
+  senseHints?: SenseHint[];
+  morphology?: { via: 'irregular' | 'rule'; rule: string };
+  entry?: { surface: string; start: number; end: number };
+}
+export interface Analysis {
+  segments: Segment[];
+  tokens: Token[];
+  metrics?: { lookupCalls: number; cacheHits: number; budget: number; budgetExhausted: boolean; budgetUnits?: number };
+}
+/** B03A: what a clause is. Teach and correct arrive in part B. */
+export type SpeechAct = 'ask' | 'command' | 'greet' | 'thanks' | 'chat' | 'unknown';
+export interface Frame { act: SpeechAct; confidence: number }
+/** B03A: one instruction-sized piece of a message. `tokenRange` is [from, to) over `Analysis.tokens`; `materialIds` index `Analysis.segments`. */
+export interface Clause { span: { start: number; end: number }; tokenRange: { from: number; to: number }; materialIds: number[] }
+export interface ActReading { act: SpeechAct; confidence: number; reason: string; need?: true }
+/** `need` (B04C0d-A): the act is 'command' only because the speaker STATED A NEED ("I need a QR code"), not because they gave an order. Absent for every other clause. */
+export interface ClauseFrame { clause: Clause; act: SpeechAct; polarity: 'positive' | 'negative'; confidence: number; reason: string; alternatives: ActReading[]; need?: true }
+/** `teaching` (B03B3b): teach and correct acts found in the message (a reading only; nothing learns from it yet).
+ *  `structure` (B03B2): the finer reading of the clauses (links, verb/object/details, pointers, relays). Present when the message has words; not yet used by any stage that acts. */
+export interface Meaning { clauses: ClauseFrame[]; onlyMaterial: boolean; structure?: MeaningStructure; language?: LanguageReading; teaching?: TeachingReading[]; tone?: ToneReading; senses?: SenseReading[] }
+export interface TraceEntry { stage: StageId; state: StageState; note: string }
+export interface MindTrace { utterance: Utterance; entries: TraceEntry[] }
+export interface MindContext { utterance: Utterance; analysis?: Analysis; frame?: Frame; meaning?: Meaning; splitMeaning?: Meaning; resolutions?: PieceResolution[]; routes?: RouterResult; values?: FeedValue[]; reply?: BrainReply; entries: TraceEntry[] }
+export interface MindStage { id: StageId; run(context: MindContext): Promise<MindContext> }

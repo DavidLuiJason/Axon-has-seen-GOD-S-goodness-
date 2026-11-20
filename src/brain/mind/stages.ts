@@ -1,0 +1,226 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * B1 stage implementations. Understanding beyond placeholder structure is deferred.
+ */
+import type { BrainProvider, BrainRequest } from '../types';
+import { maskCodeRegions } from '../symbols/protect';
+import { classifySymbolRoles } from '../symbols/symbolRoles';
+import type { Meaning, MindContext, MindStage, Segment, StageId, StageState } from './types';
+import { createLegacyExecutor } from './legacy';
+import { dictionarySlot } from '../knowledge/dictionarySlot';
+import type { KnowledgeSlot } from '../knowledge/slot';
+import { createAnalyzer } from './analysis/analyze';
+import { buildMeaning } from './meaning';
+import { extractValues } from './meaning/values';
+import { makeRelated, statusMapFrom } from './resolve/options';
+import type { ToolFact } from './schema/schemaTypes';
+import { relationLookupFromTokens } from './resolve/tokenRelations';
+import { resolveMessage } from './resolve/clauseInputs';
+import type { AdapterInput } from './resolve/clauseInputsTypes';
+import { runDirectLane, type LaneConfig } from './directLane';
+import { readsAsRequest, stepDialogue, type DialogueHost } from './dialogue/dialogueDriver';
+import { routeMessage, routerNote, type RouterResult } from './router/routerShadow';
+import { binderDecisions } from './router/routerBinder';
+import { getSchema } from './schema/actionSchemas';
+
+function withEntry(context: MindContext, stage: StageId, state: StageState, note: string, patch: Partial<MindContext> = {}): MindContext {
+  return { ...context, ...patch, entries: [...context.entries, { stage, state, note }] };
+}
+
+function utcClock(milliseconds: number): { year: number; month: number; day: number; hour: number; minute: number } {
+  const date = new Date(milliseconds);
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate(), hour: date.getUTCHours(), minute: date.getUTCMinutes() };
+}
+
+function makeSegments(text: string): { segments: Segment[]; note: string } {
+  try {
+    const protectedText = maskCodeRegions(text);
+    if (protectedText.unsure) return { segments: [{ kind: 'language', text, start: 0, end: text.length }], note: 'code-region protection was unsure; treated as language' };
+    const regions: Array<{ start: number; end: number; text: string }> = protectedText.regions.map((region) => ({ start: region.start, end: region.end, text: region.text }));
+    const quoteStack: number[] = [];
+    for (const mark of classifySymbolRoles(text)) {
+      if (mark.role === 'quote_open') quoteStack.push(mark.index);
+      else if (mark.role === 'quote_close' && quoteStack.length) {
+        const start = quoteStack.pop()!;
+        const end = mark.index + mark.symbol.length;
+        regions.push({ start, end, text: text.slice(start, end) });
+      }
+    }
+    regions.sort((a, b) => a.start - b.start || a.end - b.end);
+    const material: Array<{ start: number; end: number; text: string }> = [];
+    for (const region of regions) {
+      const previous = material[material.length - 1];
+      if (previous && region.start <= previous.end) {
+        previous.end = Math.max(previous.end, region.end);
+        previous.text = text.slice(previous.start, previous.end);
+      } else material.push({ ...region });
+    }
+    if (!material.length) return { segments: [{ kind: 'language', text, start: 0, end: text.length }], note: 'existing protection found no material region' };
+    const segments: Segment[] = [];
+    let cursor = 0;
+    for (const region of material) {
+      if (region.start > cursor) segments.push({ kind: 'language', text: text.slice(cursor, region.start), start: cursor, end: region.start });
+      segments.push({ kind: 'material', text: region.text, start: region.start, end: region.end });
+      cursor = region.end;
+    }
+    if (cursor < text.length) segments.push({ kind: 'language', text: text.slice(cursor), start: cursor, end: text.length });
+    return { segments, note: 'existing code and quote protection separated material' };
+  } catch {
+    return { segments: [{ kind: 'language', text, start: 0, end: text.length }], note: 'code-region protection unavailable; treated as language' };
+  }
+}
+
+export function createStages(executor: ReturnType<typeof createLegacyExecutor>, now: () => number, nextId: () => string, slot: KnowledgeSlot = dictionarySlot, liveFacts?: () => readonly ToolFact[], lane?: LaneConfig, dialogueHost?: DialogueHost): MindStage[] {
+  function intake(context: MindContext): MindContext {
+    const utterance = { id: nextId(), text: context.utterance.text, place: context.utterance.place, at: now() };
+    return withEntry(context, 'intake', 'ran', 'request captured', { utterance });
+  }
+  function reading(context: MindContext): MindContext {
+    const read = makeSegments(context.utterance.text);
+    return withEntry(context, 'reading', 'ran', read.note, { analysis: { segments: read.segments, tokens: [] } });
+  }
+  async function analysis(context: MindContext): Promise<MindContext> {
+    const analyze = createAnalyzer(slot, { maxLookups: 64, maxPhraseWords: 5 });
+    const segments = context.analysis?.segments ?? [{ kind: 'language' as const, text: context.utterance.text, start: 0, end: context.utterance.text.length }];
+    const result = await analyze(segments);
+    if (!result.ok) return withEntry(context, 'analysis', 'ran', `analysis unavailable: ${result.error}`, { analysis: { segments, tokens: [] } });
+    const note = `dictionary analysis; ${result.metrics.lookupCalls} lookups, ${result.metrics.cacheHits} cache hits${result.metrics.budgetExhausted ? ', budget exhausted' : ''}`;
+    return withEntry(context, 'analysis', 'ran', note, { analysis: { segments, tokens: result.tokens, metrics: result.metrics } });
+  }
+  function meaning(context: MindContext): MindContext {
+    const unreadable = { act: 'unknown' as const, confidence: 0 };
+    if (!context.analysis || !context.analysis.metrics) return withEntry(context, 'meaning', 'not-built', 'meaning not read: the analysis did not complete', { frame: unreadable });
+    try {
+      const outcome = buildMeaning(context.analysis, context.utterance.text);
+      if (!outcome.ok) return withEntry(context, 'meaning', 'not-built', `meaning not read: ${outcome.error}`, { frame: unreadable });
+      const clauses = outcome.meaning.clauses;
+      const note = clauses.length === 0
+        ? (outcome.meaning.onlyMaterial ? '0 clauses: only quoted or code material, nothing is interpreted' : '0 clauses: no words')
+        : `${clauses.length} clause${clauses.length === 1 ? '' : 's'}: ${clauses.map((frame) => frame.polarity === 'negative' ? `${frame.act} (negative)` : frame.act).join(', ')}`;
+      const first = clauses[0];
+      // MR1: a second, looser split of the same message, kept only as an ALTERNATIVE (never replaces the first reading here). It exists only when it finds MORE pieces.
+      let splitMeaning: Meaning | undefined;
+      let splitNote = '';
+      try {
+        const loose = buildMeaning(context.analysis, context.utterance.text, true);
+        if (loose.ok && loose.meaning.structure && loose.meaning.clauses.length > clauses.length) {
+          splitMeaning = loose.meaning;
+          splitNote = `; a second reading finds ${loose.meaning.clauses.length} clauses`;
+        }
+      } catch { splitMeaning = undefined; }
+      return withEntry(context, 'meaning', 'ran', note + splitNote, { meaning: outcome.meaning, ...(splitMeaning ? { splitMeaning } : {}), frame: first ? { act: first.act, confidence: first.confidence } : unreadable });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return withEntry(context, 'meaning', 'not-built', `meaning failed: ${message}`, { frame: unreadable });
+    }
+  }
+  function resolution(context: MindContext): MindContext {
+    if (!context.analysis) return withEntry(context, 'resolution', 'not-built', 'not built: analysis is missing');
+    if (!context.meaning?.structure) return withEntry(context, 'resolution', 'not-built', 'not built: Meaning structure is missing');
+    try {
+      const extracted = extractValues(context.utterance.text, context.analysis.segments, utcClock(now()));
+      const values = extracted.ok ? extracted.values : [];
+      const valueNote = extracted.ok ? '' : `; values unavailable: ${extracted.message}`;
+      // B04B3: concept closeness from the dictionary synonyms of the message's own words.
+      // B04B4P2: options.status comes from the live tool facts (catalog + registry + left-out list), read at message time because the
+      // registry fills at app start. No facts source, or a source that fails, means no status (a tool is then treated as built), said in the note.
+      const related = makeRelated(relationLookupFromTokens(context.analysis.tokens));
+      let status: ReturnType<typeof statusMapFrom> | undefined;
+      let statusNote = '';
+      if (liveFacts) {
+        try { status = statusMapFrom(liveFacts()); } catch (error) { statusNote = `; live tool facts unavailable: ${error instanceof Error ? error.message : String(error)}`; }
+      }
+      const analysisNow = context.analysis;
+      // One reading -> its resolutions, its route record and its trace words (ROUTER in shadow).
+      const resolveReading = (reading: Meaning) => {
+        const structure = reading.structure!;
+        const adapterInput: AdapterInput = {
+          tokens: analysisNow.tokens,
+          segments: analysisNow.segments,
+          clauses: reading.clauses,
+          words: structure.words,
+          pieces: structure.pieces,
+          values,
+        };
+        const resolutions = resolveMessage(adapterInput, status ? { related, status } : { related });
+        const counts = { match: 0, ask: 0, unavailable: 0, none: 0 };
+        for (const item of resolutions) {
+          if (item.resolution.kind === 'match') counts.match += 1;
+          else if (item.resolution.kind === 'ask') counts.ask += 1;
+          else if (item.resolution.kind === 'unavailable') counts.unavailable += 1;
+          else if (item.resolution.kind === 'none') counts.none += 1;
+        }
+        const note = `${structure.pieces.length} pieces; ${counts.match} matches, ${counts.ask} questions, ${counts.unavailable} unavailable, ${counts.none} none${valueNote}${statusNote}`;
+        // ROUTER (shadow): reads the resolutions, writes one trace line, changes nothing else. A router failure is said in the note and never touches the resolutions.
+        let routes: RouterResult | undefined;
+        let routerLine = '';
+        try { const decisions = binderDecisions({ message: context.utterance.text, segments: analysisNow.segments, structure, values: values as never, resolutions, ...(lane ? { choicesFor: lane.choicesFor, toolNameFor: lane.toolNameFor } : {}) }); routes = routeMessage(resolutions, reading, getSchema, (piece) => decisions.get(piece)); routerLine = `; ${routerNote(routes)}`; } catch (error) { routerLine = `; router failed: ${error instanceof Error ? error.message : String(error)}`; }
+        return { resolutions, routed: routes, note: note + routerLine };
+      };
+      let chosen = resolveReading(context.meaning);
+      let adoptedMeaning: Meaning | undefined;
+      // MR1 adoption gate: the second reading wins ONLY when every piece of it is a sure tool match or a greeting/thanks AND at least one is a tool match. Questions, none, unavailable and negated pieces never qualify; any failure keeps the first reading.
+      if (context.splitMeaning?.structure) {
+        try {
+          const second = resolveReading(context.splitMeaning);
+          const kinds = second.resolutions.map((item) => item.resolution.kind);
+          if (kinds.length > 0 && kinds.every((kind) => kind === 'match' || kind === 'not-a-request') && kinds.includes('match')) {
+            chosen = { ...second, note: `${second.note}; second reading adopted (${kinds.length} requests, the first reading found ${context.meaning.clauses.length})` };
+            adoptedMeaning = context.splitMeaning;
+          }
+        } catch { adoptedMeaning = undefined; }
+      }
+      const resolutions = chosen.resolutions;
+      const routes = chosen.routed;
+      return withEntry(context, 'resolution', 'ran', chosen.note, { ...(adoptedMeaning ? { meaning: adoptedMeaning } : {}), ...(routes ? { resolutions, routes, values: values as never } : { resolutions, values: values as never }) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return withEntry(context, 'resolution', 'not-built', `resolution failed: ${message}`);
+    }
+  }
+  function dialogue(context: MindContext): MindContext {
+    // B05 D2a (shadow): with a dialogue host the stage runs and traces; without one it behaves exactly as before.
+    if (!dialogueHost) return withEntry(context, 'dialogue', 'not-built', 'not built: dialogue state arrives in B5');
+    const step = stepDialogue(dialogueHost.get(), context.utterance.text, readsAsRequest(context.resolutions));
+    dialogueHost.set(step.state);
+    return withEntry(context, 'dialogue', 'ran', step.note);
+  }
+  function planning(context: MindContext): MindContext {
+    return withEntry(context, 'planning', 'not-built', 'not built: planning arrives in B6');
+  }
+  async function execution(context: MindContext): Promise<MindContext> {
+    const request: BrainRequest = { text: context.utterance.text, place: context.utterance.place };
+    // LIVE1b: the direct lane (LIVE0 design). No lane configured means this stage behaves exactly as before.
+    let laneNote = '';
+    if (lane) {
+      const outcome = await runDirectLane({
+        message: context.utterance.text, holdsConversation: executor.holdsConversation(), segments: context.analysis?.segments ?? [],
+        values: context.values ?? [], meaning: context.meaning, resolutions: context.resolutions,
+      }, lane);
+      if (outcome.kind === 'answer') return withEntry(context, 'execution', 'ran', outcome.note, { reply: outcome.reply });
+      laneNote = `; direct lane yielded: ${outcome.reason}`;
+    }
+    const reply = await executor.run(request);
+    return withEntry(context, 'execution', 'ran', `legacy executor preserves current provider order and fallback${laneNote}`, { reply });
+  }
+  function verification(context: MindContext): MindContext {
+    return withEntry(context, 'verification', 'not-built', 'not built: verification arrives in B6');
+  }
+  function response(context: MindContext): MindContext {
+    return withEntry(context, 'response', 'passed-through', 'B1 passes the legacy reply through unchanged');
+  }
+  return [
+    { id: 'intake', run: async (context) => intake(context) },
+    { id: 'reading', run: async (context) => reading(context) },
+    { id: 'analysis', run: async (context) => analysis(context) },
+    { id: 'meaning', run: async (context) => meaning(context) },
+    { id: 'resolution', run: async (context) => resolution(context) },
+    { id: 'dialogue', run: async (context) => dialogue(context) },
+    { id: 'planning', run: async (context) => planning(context) },
+    { id: 'execution', run: execution },
+    { id: 'verification', run: async (context) => verification(context) },
+    { id: 'response', run: async (context) => response(context) },
+  ];
+}
