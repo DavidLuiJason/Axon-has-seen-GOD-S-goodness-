@@ -13,6 +13,7 @@ import { TEXT_RUNNERS } from './textRunners';
 import { NUMBER_RUNNERS } from './numberRunners';
 import { TIME_RUNNERS } from './timeRunners';
 import { CREATE_RUNNERS } from './createRunners';
+import { FINANCE_RUNNERS } from './financeRunners';
 import { TEXT_COUNTER_RUNNER } from './textCounterRunner';
 
 export type RunnerMode = 'legacy' | 'runner';
@@ -20,7 +21,7 @@ export type RunnerMode = 'legacy' | 'runner';
 export type RunnerSwitches = Readonly<Record<string, RunnerMode>>;
 
 export const ALL_RUNNERS: readonly ToolRunner[] = Object.freeze([
-  ...TEXT_RUNNERS, ...NUMBER_RUNNERS, ...TIME_RUNNERS, ...CREATE_RUNNERS, TEXT_COUNTER_RUNNER,
+  ...TEXT_RUNNERS, ...NUMBER_RUNNERS, ...TIME_RUNNERS, ...CREATE_RUNNERS, ...FINANCE_RUNNERS, TEXT_COUNTER_RUNNER,
 ]);
 
 /** Every tool OFF. Go-live edits a COPY of this per family; this object itself never changes. */

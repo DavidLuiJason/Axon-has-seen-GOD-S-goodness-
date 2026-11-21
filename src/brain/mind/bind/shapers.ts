@@ -178,10 +178,36 @@ export const textCleanerShaper: Shaper = (input) => {
   return Object.keys(args).length === 0 ? null : { args, strong: false };
 };
 
+/** Loan Calculator: one amount, one percent (the yearly rate) and one length (a number straight before years or months, or a duration value); anything else is not this shape. */
+const LOAN_MONTH_MS = 2_629_800_000;
+const LOAN_UNIT_MS: Readonly<Record<string, number>> = Object.freeze({ year: 12 * LOAN_MONTH_MS, years: 12 * LOAN_MONTH_MS, month: LOAN_MONTH_MS, months: LOAN_MONTH_MS });
+export const loanShaper: Shaper = (input) => {
+  const vals = (Array.isArray(input.values) ? input.values : []).filter((v) => !!v && v.error === undefined).slice().sort((a, b) => a.start - b.start);
+  const rates = vals.filter((v) => v.kind === 'percent' && isNum(v.value));
+  const plain = vals.filter((v) => v.kind === 'number' && isNum(v.value));
+  const spans = vals.filter((v) => v.kind === 'duration' && isNum(v.ms) && v.ms > 0);
+  const words = wordsOf(input);
+  let amount: number | undefined; let term: number | undefined;
+  if (rates.length === 1 && spans.length === 1 && plain.length === 1 && vals.length === 3) { amount = plain[0]!.value as number; term = spans[0]!.ms as number; }
+  else if (rates.length === 1 && spans.length === 0 && plain.length === 2 && vals.length === 3) {
+    const unitAfter = (n: BindValue): number | undefined => {
+      const w = words.find((x) => x.start >= n.end && x.start - n.end <= 1);
+      return w === undefined ? undefined : LOAN_UNIT_MS[w.norm.toLowerCase()];
+    };
+    const [first, second] = plain as [BindValue, BindValue];
+    const u1 = unitAfter(first); const u2 = unitAfter(second);
+    if (u1 !== undefined && u2 === undefined) { term = (first.value as number) * u1; amount = second.value as number; }
+    else if (u2 !== undefined && u1 === undefined) { term = (second.value as number) * u2; amount = first.value as number; }
+  }
+  if (amount === undefined || term === undefined || !(term > 0)) return null;
+  return { args: { amount, yearlyRate: rates[0]!.value, term }, strong: true, showsResultOnly: true, whole: true };
+};
+
 export const SHAPERS: Readonly<Record<string, Shaper>> = Object.freeze({
   'percentage-helper': percentageShaper,
   'date-calculator': dateShaper,
   'converter': converterShaper,
   'text-compare': textCompareShaper,
   'text-cleaner': textCleanerShaper,
+  'loan-calculator': loanShaper,
 });

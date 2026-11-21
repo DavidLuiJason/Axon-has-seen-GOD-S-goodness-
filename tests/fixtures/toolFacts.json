@@ -1512,7 +1512,7 @@
   "description": "Work out repayments and the total cost.",
   "group": "finance",
   "screen": true,
-  "chat": "not-built",
+  "chat": "available",
   "leftOut": false,
   "purposes": [
    "Calculate amortized loan payments and repayment schedules"

@@ -8,7 +8,7 @@ const deps: RunnerDeps = Object.freeze({ now: 1000, randomBelow: () => 0, random
 
 // registry
 const ids = runnerToolIds();
-check(ids.length === 19, '19 runners registered (18 + the text-counter pilot)');
+check(ids.length === 20, '20 runners registered (18 + the text-counter pilot + the loan calculator)');
 check(new Set(ids).size === ids.length, 'no tool id twice');
 const schemaIds = new Set(listSchemas().map((s) => s.tool));
 check(ids.every((i) => schemaIds.has(i)), 'every runner has a schema');

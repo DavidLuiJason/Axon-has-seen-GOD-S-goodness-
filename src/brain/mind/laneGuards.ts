@@ -14,6 +14,7 @@ import { encoderDecoderGuard } from '../../tools/runners/guards/encoderDecoderGu
 import { hashToolGuard } from '../../tools/runners/guards/hashToolGuard';
 import { qrMakerGuard } from '../../tools/runners/guards/qrMakerGuard';
 import { findReplaceGuard } from '../../tools/runners/guards/findReplaceGuard';
+import { loanCalculatorLaneGuard } from '../../tools/runners/guards/loanCalculatorLaneGuard';
 import { textCleanerLaneGuard } from '../../tools/runners/guards/textCleanerLaneGuard';
 import { textCompareLaneGuard } from '../../tools/runners/guards/textCompareLaneGuard';
 import { converterLaneGuard } from '../../tools/runners/guards/converterLaneGuard';
@@ -76,4 +77,4 @@ const sortLinesGuard: LaneGuard = (args, message) => {
   return null;
 };
 
-export const LANE_GUARDS: Readonly<Record<string, LaneGuard>> = Object.freeze({ 'text-counter': textCounterGuard, 'case-converter': caseConverterGuard, 'sort-lines': sortLinesGuard, 'number-to-words': numberToWordsGuard, 'encoder-decoder': encoderDecoderGuard, 'hash-tool': hashToolGuard, 'qr-maker': qrMakerGuard, 'find-replace': findReplaceGuard , 'password-generator': passwordGeneratorGuard , 'random-picker': randomPickerGuard , 'calculator': calculatorGuard , 'percentage-helper': percentageHelperGuard , 'date-calculator': dateCalculatorLaneGuard , 'converter': converterLaneGuard , 'text-compare': textCompareLaneGuard , 'text-cleaner': textCleanerLaneGuard });
+export const LANE_GUARDS: Readonly<Record<string, LaneGuard>> = Object.freeze({ 'text-counter': textCounterGuard, 'case-converter': caseConverterGuard, 'sort-lines': sortLinesGuard, 'number-to-words': numberToWordsGuard, 'encoder-decoder': encoderDecoderGuard, 'hash-tool': hashToolGuard, 'qr-maker': qrMakerGuard, 'find-replace': findReplaceGuard , 'password-generator': passwordGeneratorGuard , 'random-picker': randomPickerGuard , 'calculator': calculatorGuard , 'percentage-helper': percentageHelperGuard , 'date-calculator': dateCalculatorLaneGuard , 'converter': converterLaneGuard , 'text-compare': textCompareLaneGuard , 'text-cleaner': textCleanerLaneGuard , 'loan-calculator': loanCalculatorLaneGuard });

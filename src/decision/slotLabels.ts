@@ -68,6 +68,7 @@ export const SLOT_LABELS: Readonly<Record<string, string>> = Object.freeze({
   'code-formatter.input': 'the code to format',
   'pattern-tester.pattern': 'the pattern to test',
   'pattern-tester.text': 'the text to test it on',
+  'loan-calculator.amount': 'the amount of the loan',
   'loan-calculator.yearlyRate': 'the yearly interest rate',
   'loan-calculator.term': 'the length of the loan',
   'split-bill.bill': 'the total bill',

@@ -48,7 +48,7 @@ async function runnerReply(message: string): Promise<string | null> {
 
 // registry, schema, switch
 check(getSchema('text-counter')!.slots.map((s) => s.name).join() === 'text,unit', 'schema has text and unit');
-check(findRunner('text-counter') === TEXT_COUNTER_RUNNER && runnerToolIds().length === 19, 'registered');
+check(findRunner('text-counter') === TEXT_COUNTER_RUNNER && runnerToolIds().length === 20, 'registered');
 check((await execute('text-counter', { text: 'a b' }, deps)).route === 'legacy', 'switch OFF by default: legacy answers');
 const live = await execute('text-counter', { text: 'a b' }, deps, { 'text-counter': 'runner' });
 check(live.route === 'runner' && live.outcome.ok === true, 'switch ON: runner answers');
