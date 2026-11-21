@@ -9,7 +9,53 @@
   var MAX_ELEMENTS = 120, MAX_TEXT = 20000, MAX_LABEL = 120, MAX_TYPED = 2000;
   var PAYMENT = /(pay now|place order|complete purchase|buy now|checkout|confirm payment|purchase|pay with|pay )/i;
   var SIGNIN = /(sign in|log in|login|sign up|register|create account)/i;
-  var SENSITIVE_NAME = /(card|cvv|cvc|ccnum|expir|iban|ssn|passw|otp|pin code|security code)/i;
+  /* Sensitive-field detection works on WORDS, never on substrings, so "shipping" is not "pin" and
+     "cardigan_size" is not "card". Every name, id, autocomplete value, aria-label, placeholder, title and
+     visible label of a field is split into lowercase words (camelCase and punctuation split too). */
+  var MAX_META = 200;
+  var PAY_WORDS = { card: 1, cardholder: 1, cvv: 1, cvc: 1, csc: 1, iban: 1, ccnum: 1, expiry: 1, expiration: 1 };
+  var SECRET_WORDS = { password: 1, passwd: 1, passcode: 1, passphrase: 1, pwd: 1, otp: 1, totp: 1, mfa: 1, '2fa': 1, pin: 1, secret: 1, ssn: 1 };
+  var CC_NEXT = { num: 1, number: 1, exp: 1, csc: 1, cvc: 1, cvv: 1, type: 1, name: 1, month: 1, year: 1, expiry: 1 };
+  var CODE_LEAD = { verification: 1, authentication: 1, auth: 1, access: 1, confirmation: 1, recovery: 1, backup: 1, sms: 1, security: 1, login: 1 };
+  var CODE_TAIL = { code: 1, pin: 1, passcode: 1, password: 1 };
+
+  function words(text) {
+    var spaced = String(text == null ? '' : text).slice(0, MAX_META).replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+    var parts = spaced.split(/[^a-z0-9]+/), out = [];
+    for (var i = 0; i < parts.length; i++) if (parts[i]) out.push(parts[i]);
+    return out;
+  }
+  function has(map, key) { return Object.prototype.hasOwnProperty.call(map, key); }
+  function textOf(node) { return node ? String(node.innerText || node.textContent || '') : ''; }
+  function fieldMeta(el) {
+    var parts = [attr(el, 'name'), attr(el, 'id'), attr(el, 'autocomplete'), attr(el, 'aria-label'), attr(el, 'placeholder'), attr(el, 'title')], i;
+    var labelled = attr(el, 'aria-labelledby');
+    if (labelled && document.getElementById) {
+      var ids = labelled.split(/\s+/);
+      for (i = 0; i < ids.length; i++) if (ids[i]) parts.push(textOf(document.getElementById(ids[i])));
+    }
+    var labels = el.labels;
+    if (labels) for (i = 0; i < labels.length; i++) parts.push(textOf(labels[i]));
+    if (el.closest) parts.push(textOf(el.closest('label')));
+    return parts;
+  }
+  /* Returns 'payment' (card or bank number fields), 'secret' (passwords and codes) or ''. */
+  function classify(el) {
+    var t = tag(el);
+    if (t !== 'input' && t !== 'textarea' && t !== 'select') return '';
+    if (inputType(el) === 'password') return 'secret';
+    var meta = fieldMeta(el), result = '';
+    for (var m = 0; m < meta.length; m++) {
+      var w = words(meta[m]);
+      for (var i = 0; i < w.length; i++) {
+        var next = i + 1 < w.length ? w[i + 1] : '', after = i + 2 < w.length ? w[i + 2] : '';
+        if (has(PAY_WORDS, w[i]) || (w[i] === 'cc' && has(CC_NEXT, next))) return 'payment';
+        if (has(SECRET_WORDS, w[i]) || (w[i] === 'one' && next === 'time') || (w[i] === 'social' && next === 'security') ||
+            (has(CODE_LEAD, w[i]) && has(CODE_TAIL, next)) || false) result = 'secret';
+      }
+    }
+    return result;
+  }
 
   function clip(value, limit) {
     var text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -44,13 +90,11 @@
     }
     return attr(el, 'role') || 'control';
   }
-  function isSensitive(el) {
-    var t = tag(el), type = inputType(el);
-    if (t !== 'input' && t !== 'textarea') return false;
-    if (type === 'password') return true;
-    var auto = attr(el, 'autocomplete').toLowerCase();
-    if (auto.indexOf('cc-') === 0 || auto === 'one-time-code' || auto === 'current-password' || auto === 'new-password') return true;
-    return SENSITIVE_NAME.test(attr(el, 'name') + ' ' + attr(el, 'id'));
+  function isSensitive(el) { return classify(el) !== ''; }
+  function formFields(form) {
+    var list = form && form.querySelectorAll ? form.querySelectorAll('input,select,textarea') : [], out = [];
+    for (var i = 0; list && i < list.length; i++) out.push(list[i]);
+    return out;
   }
   function riskOf(el) {
     var role = roleOf(el), type = inputType(el);
@@ -58,8 +102,13 @@
     if (!buttonLike) return 'none';
     var text = labelOf(el) + ' ' + attr(el, 'name') + ' ' + attr(el, 'id') + ' ' + attr(el, 'value');
     var form = el.closest ? el.closest('form') : null;
+    var fields = formFields(form), payForm = false;
     var passwordForm = !!(form && form.querySelector && form.querySelector('input[type="password"]'));
-    if (PAYMENT.test(text)) return 'payment';
+    for (var f = 0; f < fields.length; f++) {
+      if (inputType(fields[f]) === 'password') passwordForm = true;
+      if (classify(fields[f]) === 'payment') payForm = true;
+    }
+    if (PAYMENT.test(text) || payForm) return 'payment';
     if (SIGNIN.test(text) || passwordForm) return 'sign-in';
     if (type === 'submit' || (form && tag(el) === 'button' && attr(el, 'type') !== 'button')) return 'submit';
     return 'none';
@@ -139,6 +188,7 @@
     }
     if (a.type === 'select') {
       if (tag(el) !== 'select') return fail('not-a-select', 'The element is not a drop-down list.');
+      if (isSensitive(el)) return fail('sensitive-field', 'AXON never changes password, card or code fields.');
       var wanted = String(a.value == null ? '' : a.value), found = false, options = el.options || [];
       for (var i = 0; i < options.length; i++) { if (String(options[i].value) === wanted) { found = true; break; } }
       if (!found) return fail('no-such-option', 'The drop-down list has no such value.');

@@ -139,9 +139,52 @@ export class MockWebUiService implements WebUiService {
     if (tab.kind !== 'normal' && !WEB_FEATURES[tab.kind]) return no('coming-soon', `${KIND_LABEL[tab.kind]} browsing is coming soon.`);
     const url = toUrl(text);
     if (!url) return no('invalid', 'Type something to search or a web address.');
-    if (tab.url) { this.backStacks.set(tab.id, [...(this.backStacks.get(tab.id) ?? []), tab.url]); }
+    return this.recordSuccessfulNavigation(tab.id, url);
+  }
+
+  /**
+   * Record a navigation that an external/native engine has already accepted.
+   * Subclasses use this only after the real engine succeeds, so native Incognito/Stealth
+   * tabs can update the preview/history model without passing through the mock feature gate.
+   */
+  protected recordSuccessfulNavigation(tabId: string, url: string): WebResult {
+    const tab = this.tab(tabId);
+    if (!tab) return no('not-available', 'The active tab no longer exists.');
+    if (!/^https?:\/\//i.test(url)) return no('invalid', 'Only HTTP and HTTPS pages can be recorded.');
+    if (tab.url) this.backStacks.set(tab.id, [...(this.backStacks.get(tab.id) ?? []), tab.url]);
     this.forwardStacks.set(tab.id, []);
     this.visit(tab, url);
+    return ok(null);
+  }
+
+  /**
+   * Adopt confirmed state from a real native browser after an operation succeeds.
+   * This keeps the React preview's URL/title/loading/navigation flags aligned with the
+   * native engine instead of independently simulating those values.
+   */
+  protected syncNativeTabState(tabId: string, native: {
+    url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean;
+  }): WebResult {
+    const tab = this.tab(tabId);
+    if (!tab) return no('not-available', 'The active tab no longer exists.');
+    const url = typeof native.url === 'string' ? native.url : '';
+    const nativeTitle = typeof native.title === 'string' ? native.title.trim() : '';
+    const title = !nativeTitle || nativeTitle === 'New tab' || nativeTitle === 'Home'
+      ? (url ? titleOf(url) : 'New tab')
+      : nativeTitle;
+    if (url && !/^https?:\/\//i.test(url)) return no('invalid', 'The native browser returned a non-HTTP(S) page URL.');
+    this.patch(tabId, {
+      url,
+      title,
+      loading: native.loading === true,
+      canGoBack: native.canGoBack === true,
+      canGoForward: native.canGoForward === true,
+      secure: url.startsWith('https://'),
+      bookmarked: url ? this.bookmarks.some((bookmark) => bookmark.url === url) : false,
+    });
+    if (url && url !== tab.url && tab.kind === 'normal') {
+      this.history = [{ id: this.id('hist-'), title, url, visitedAt: this.counter }, ...this.history].slice(0, 500);
+    }
     return ok(null);
   }
   private visit(tab: WebTab, url: string): void {

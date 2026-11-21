@@ -4,5 +4,9 @@ export type { NativeBrowserState, NativeBrowserTab, BrowserTabGroup, BrowserTabK
 import type { AxonBrowserPlugin } from './browserPluginTypes.ts';
 
 const AxonBrowser = registerPlugin<AxonBrowserPlugin>('AxonBrowser');
-export const isNativeBrowserAvailable = (): boolean => Capacitor.isNativePlatform();
+
+/** The current AxonBrowser native plugin is Android-only. Do not report iOS or other
+ * native platforms as supported until their native plugin implementations exist. */
+export const isAndroidBrowserPlatform = (platform: string): boolean => platform === 'android';
+export const isNativeBrowserAvailable = (): boolean => isAndroidBrowserPlatform(Capacitor.getPlatform());
 export default AxonBrowser;

@@ -1,0 +1,6 @@
+AXON Web D56 round 3 merge zip. Unzip over the repository root (repo-root zip: tools/auto-unpack.sh unpacks it).
+9 files: 6 source files (1 overlay JS, 5 TypeScript, 3 of them new or rewritten) and 3 test files. No roadmap, NOW.txt, MERGE_TAG.txt, NAP, package.json, workflow or Java file is touched.
+Behaviour change on Android: getWebUiService() now returns the native browser bridge (NativeWebUiService) instead of the in-memory preview. Composer and quick-action web commands will open and drive the native browser. NOT yet tested on a phone.
+Test (Node 22): node --experimental-strip-types --test tests/pageAgentHardening.test.mjs tests/nativeWebUiService.test.mjs tests/nativeWebUiBridge.test.mjs tests/browserAxonPageAgent.test.mjs tests/browserPageTools.test.mjs tests/browserRuntime150.test.mjs tests/browserSiteSimulation.test.mjs   => 399 pass, 0 fail (MEASURED here).
+Strict targeted tsc of the 8 changed Web modules (with an @capacitor/core stub): exit 0. Full project typecheck, lint, Vite build, Gradle and APK: NOT RUN: read the cloud log from the top.
+Read first: the cloud log TEXT (tests/webUi.test.ts needs react and was NOT RUN here).
