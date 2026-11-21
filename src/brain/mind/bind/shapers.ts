@@ -203,6 +203,25 @@ export const loanShaper: Shaper = (input) => {
   return { args: { amount, yearlyRate: rates[0]!.value, term }, strong: true, showsResultOnly: true, whole: true };
 };
 
+/** Split Bill: one bill amount, one number straight before a word for people, and one percent tip (or no tip word at all, then the tip is zero). */
+const SPLIT_PEOPLE: Readonly<Record<string, true>> = Object.freeze({ people: true, persons: true, friends: true, ways: true, diners: true });
+export const splitBillShaper: Shaper = (input) => {
+  const vals = (Array.isArray(input.values) ? input.values : []).filter((v) => !!v && v.error === undefined).slice().sort((a, b) => a.start - b.start);
+  if (vals.some((v) => v.kind !== 'number' && v.kind !== 'percent')) return null;
+  const plain = vals.filter((v) => v.kind === 'number' && isNum(v.value));
+  const rates = vals.filter((v) => v.kind === 'percent' && isNum(v.value));
+  const words = wordsOf(input);
+  if (plain.length !== 2 || rates.length > 1 || vals.length !== plain.length + rates.length) return null;
+  const crowd = (n: BindValue): boolean => words.some((x) => x.start >= n.end && x.start - n.end <= 1 && word(SPLIT_PEOPLE, x.norm.toLowerCase()));
+  const [first, second] = plain as [BindValue, BindValue];
+  let bill: number; let people: number;
+  if (crowd(second) && !crowd(first)) { bill = first.value as number; people = second.value as number; }
+  else if (crowd(first) && !crowd(second)) { bill = second.value as number; people = first.value as number; }
+  else return null;
+  if (rates.length === 0 && words.some((x) => x.norm.toLowerCase() === 'tip')) return null;
+  return { args: { bill, tipPercent: rates.length === 1 ? rates[0]!.value : 0, people }, strong: true, showsResultOnly: true, whole: true };
+};
+
 export const SHAPERS: Readonly<Record<string, Shaper>> = Object.freeze({
   'percentage-helper': percentageShaper,
   'date-calculator': dateShaper,
@@ -210,4 +229,5 @@ export const SHAPERS: Readonly<Record<string, Shaper>> = Object.freeze({
   'text-compare': textCompareShaper,
   'text-cleaner': textCleanerShaper,
   'loan-calculator': loanShaper,
+  'split-bill': splitBillShaper,
 });

@@ -1,0 +1,12 @@
+D111 TAG LINES for Jobs 3+4 (apply by hand: I did not have your current tag files, so this package does not overwrite them. If you attach the current NOW.txt, MERGE_TAG.txt and DIRECTOR_NAP.txt I will apply and return them.)
+
+1) NOW.txt: replace the whole line with:
+2026-11-21 | roadmap v21.3 | JOB3+4 (D111: orchestrator ON in real chat: repair, repair question yes/no/cancel, text question, failed recheck held back) | READ docs/JOB3_4_ORCHESTRATOR_ON_D111.md next | NEXT: Job 13 binder gaps and the old count handler, then judgment, council, planner; 13 older tests red since tool wave 3 | owner decisions waiting: who owns tool waves vs brain, PDF library, Code/Web/Games descriptions; read DIRECTOR_NAP.txt
+
+2) MERGE_TAG.txt: add as the NEW FIRST line:
+2026-11-21 | JOB3+4 [D111; files: src/brain/orchestratorMode.ts (pin shadow -> on), src/brain/mind/orchestrator/orchestrator.ts (repair yes/no follow-up), tests/orchestratorConnection.test.ts (pins), tests/orchestratorOnChat.test.ts (new), docs/JOB3_4_ORCHESTRATOR_ON_D111.md, docs/JOB1_ORCHESTRATOR_CONNECTION_D111.md (pointer)] | the orchestrator is ON in the real chat: a repaired message is said out loud and answered, a risky repair asks and the yes / no / cancel / move-on answers work (before, yes went nowhere), a tool without its text asks once, a tool answer that fails its own recheck is held back; kill switch is one line | MEASURED on main_2 + Job 0/1 (jszip stubbed): orchestratorOnChat 33, orchestratorConnection 39, orchestrator 227, brainEndToEnd 187 pass; four deliberate defects each caught; test:kernel list 158 pass, 7 fail identically on untouched main_2; 6 further brain tests fail identically on untouched main_2 | NOT RUN: cloud build, whole-project tsc, phone, jszip tests | MODE IS ON (kill switch in src/brain/orchestratorMode.ts) | READ docs/JOB3_4_ORCHESTRATOR_ON_D111.md next
+
+3) DIRECTOR_NAP.txt (this swap keeps it at 5000 characters, limit 5,000): replace your D111 board line with:
+D111 (2026-11-21): THE BRAIN (owner named me): connects orchestrator and engines to real chat. Done: Jobs 0, 1, 3, 4 (orchestrator ON). Next: binder gaps, judgment, council, planner. Leaves Web, Games, Apps, Code, tools alone. ~25% of brain connection.
+and replace the N21 note with:
+N21 (2026-11-21, D111) ORCHESTRATOR IS ON in chat (repair, yes/no, text question, failed recheck held back). Kill switch: src/brain/orchestratorMode.ts = 'shadow'. 13 tests red since wave 3: docs/JOB3_4_ORCHESTRATOR_ON_D111.md

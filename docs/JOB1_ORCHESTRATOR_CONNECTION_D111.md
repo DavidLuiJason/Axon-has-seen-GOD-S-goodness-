@@ -1,5 +1,7 @@
 # JOB 0 + JOB 1 (D111): green baseline and the orchestrator connected to real chat
 
+UPDATE: Job 3+4 (docs/JOB3_4_ORCHESTRATOR_ON_D111.md) switched the pinned mode from 'shadow' to 'on'. Wherever this file says shadow is shipped, read it as the Job 1 state.
+
 Evidence labels: MEASURED = run here on main_2 plus this change (jszip is NOT installed in the Director sandbox; a throwaway stub was used only to let the tool registrations load, it is not in the package). NOT RUN = not executed.
 
 ## 1. What was true before (MEASURED by reading and running)

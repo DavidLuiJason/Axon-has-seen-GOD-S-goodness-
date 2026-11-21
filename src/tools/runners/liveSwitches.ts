@@ -26,6 +26,7 @@ import { CONVERT_ACTION } from '../convertAction';
 import { TEXT_COMPARE_ACTION } from '../textCompareAction';
 import { TEXT_CLEAN_ACTION } from '../textCleanAction';
 import { LOAN_ACTION } from '../loanAction';
+import { SPLIT_ACTION } from '../splitAction';
 import { TEXT_REPLACE_ACTION } from '../textReplaceAction';
 import { QR_LEVEL_CHOICES, foldQrLevel } from './qrWords';
 import { HASH_ALGORITHM_WORDS, foldHashAlgorithm } from './hashWords';
@@ -36,7 +37,7 @@ import { GENERATED_LIVE_SWITCHES, GENERATED_LIVE_CHOICES, GENERATED_LIVE_TASKS }
 /** LIVE9-3 go-live (2026-11-03): Sort Lines is the third tool ON. SWITCH BACK = delete the 'sort-lines' entry below and its LIVE_TASKS entry, delete its `act.sort-lines` chat action in registerAxonTools.ts (chat must not claim it, FL10), remove `TEXT_SORT_ACTION` from axonEngine.ts and set PINNED_ON in tests/liveSwitches.test.ts to ['case-converter','text-counter'].
  * LIVE8-3 go-live (2026-10-31): Case Converter is the second tool ON. SWITCH BACK = delete the 'case-converter' entry below, delete its `act.case-converter` chat action in registerAxonTools.ts (chat must not claim it, FL10) and set PINNED_ON in tests/liveSwitches.test.ts to ['text-counter'].
  * LIVE2 go-live (2026-10-31, after LIVE2a): Text Counter is the first tool ON. SWITCH BACK = delete the 'text-counter' entry below and set PINNED_ON to [] in tests/liveSwitches.test.ts. */
-const HAND_ON = Object.freeze({ 'text-counter': 'runner' as const, 'case-converter': 'runner' as const, 'sort-lines': 'runner' as const, 'number-to-words': 'runner' as const, 'encoder-decoder': 'runner' as const, 'hash-tool': 'runner' as const, 'qr-maker': 'runner' as const, 'find-replace': 'runner' as const, 'password-generator': 'runner' as const, 'random-picker': 'runner' as const, 'calculator': 'runner' as const, 'percentage-helper': 'runner' as const, 'date-calculator': 'runner' as const, 'converter': 'runner' as const, 'text-compare': 'runner' as const, 'text-cleaner': 'runner' as const, 'loan-calculator': 'runner' as const });
+const HAND_ON = Object.freeze({ 'text-counter': 'runner' as const, 'case-converter': 'runner' as const, 'sort-lines': 'runner' as const, 'number-to-words': 'runner' as const, 'encoder-decoder': 'runner' as const, 'hash-tool': 'runner' as const, 'qr-maker': 'runner' as const, 'find-replace': 'runner' as const, 'password-generator': 'runner' as const, 'random-picker': 'runner' as const, 'calculator': 'runner' as const, 'percentage-helper': 'runner' as const, 'date-calculator': 'runner' as const, 'converter': 'runner' as const, 'text-compare': 'runner' as const, 'text-cleaner': 'runner' as const, 'loan-calculator': 'runner' as const, 'split-bill': 'runner' as const });
 export const LIVE_SWITCHES: RunnerSwitches = Object.freeze({ ...DEFAULT_SWITCHES, ...addOnlyRecord<RunnerSwitches[string]>(HAND_ON, GENERATED_LIVE_SWITCHES, 'live switch') });
 
 /** The choice words each live tool's binder may fill, per slot (one source: the runner's own closed set). */
@@ -63,6 +64,7 @@ const HAND_TASKS: Readonly<Record<string, { readonly actionId: string; readonly 
   'text-compare': Object.freeze({ actionId: TEXT_COMPARE_ACTION.id, input: (args: Readonly<Record<string, unknown>>) => ({ original: args.original, revised: args.revised, mode: args.mode }) }),
   'text-cleaner': Object.freeze({ actionId: TEXT_CLEAN_ACTION.id, input: (args: Readonly<Record<string, unknown>>) => ({ text: args.text, ...(args.trimEachLine !== undefined ? { trimEachLine: args.trimEachLine } : {}), ...(args.collapseRepeatedSpaces !== undefined ? { collapseRepeatedSpaces: args.collapseRepeatedSpaces } : {}), ...(args.removeBlankLines !== undefined ? { removeBlankLines: args.removeBlankLines } : {}), ...(args.collapseBlankLines !== undefined ? { collapseBlankLines: args.collapseBlankLines } : {}), ...(args.removeZeroWidth !== undefined ? { removeZeroWidth: args.removeZeroWidth } : {}), ...(args.normalizeLineEndings !== undefined ? { normalizeLineEndings: args.normalizeLineEndings } : {}) }) }),
   'loan-calculator': Object.freeze({ actionId: LOAN_ACTION.id, input: (args: Readonly<Record<string, unknown>>) => ({ amount: args.amount, yearlyRate: args.yearlyRate, term: args.term }) }),
+  'split-bill': Object.freeze({ actionId: SPLIT_ACTION.id, input: (args: Readonly<Record<string, unknown>>) => ({ bill: args.bill, tipPercent: args.tipPercent, people: args.people }) }),
   'find-replace': Object.freeze({ actionId: TEXT_REPLACE_ACTION.id, input: (args: Readonly<Record<string, unknown>>) => ({ text: args.text, pattern: args.pattern, replacement: args.replacement, replaceAll: args.replaceAll, caseSensitive: args.caseSensitive }) }),
   'hash-tool': Object.freeze({ actionId: HASH_ACTION.id, input: (args: Readonly<Record<string, unknown>>) => ({ input: args.input, algorithm: foldHashAlgorithm(args.algorithm) }) }),
 });

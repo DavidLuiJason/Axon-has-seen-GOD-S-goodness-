@@ -30,7 +30,7 @@ let f = 0;
 const check = (ok: boolean, name: string) => { n++; if (!ok) { f++; console.log('FAIL ' + name); } };
 
 // ---------- A: pins and connection audit
-check(ORCHESTRATOR_MODE === 'shadow', 'A01 the shipped mode is pinned to shadow (changing it is a decision: update this pin in the activation job)');
+check(ORCHESTRATOR_MODE === 'on', 'A01 the shipped mode is pinned to on (Job 3+4); the kill switch is this one line (changing it is a decision: update this pin)');
 const walk = (dir: string): string[] => readdirSync(dir).flatMap((name) => { const p = join(dir, name); return statSync(p).isDirectory() ? walk(p) : p.endsWith('.ts') || p.endsWith('.tsx') ? [p] : []; });
 const src = walk('src').map((p) => p.split('\\').join('/'));
 const buildsOne = src.filter((p) => readFileSync(p, 'utf8').includes('createOrchestrator(') && !p.startsWith('src/brain/mind/orchestrator/'));
@@ -38,7 +38,7 @@ check(buildsOne.length === 1 && buildsOne[0] === 'src/brain/orchestratedBrain.ts
 const indexText = readFileSync('src/brain/index.ts', 'utf8');
 check(indexText.includes('withOrchestrator(mind, { mode: ORCHESTRATOR_MODE })'), 'A03 getAxonBrain wraps the Mind with the pinned mode');
 check(readFileSync('src/services/axonBrainInterface.ts', 'utf8').includes('getAxonBrain().ask('), 'A04 the chat boundary still asks getAxonBrain (one door)');
-check(!indexText.includes("mode: 'on'"), 'A05 nothing in index.ts switches the orchestrator on');
+check(!indexText.includes("mode: 'on'") && !indexText.includes("mode: 'shadow'"), 'A05 index.ts never hard-codes a mode: the one pin decides');
 
 // ---------- B: wrapper laws (fake Mind)
 type R = { content: string; source: string; taskId?: string; leadParagraph?: string };
@@ -184,7 +184,7 @@ const dictionary = await Dictionary.open({ read: async (p: string) => readFile(j
 const slot = createDictionarySlot(async () => dictionary);
 rebuildChatBrainForTests(slot);
 const before = getOrchestratorStatus();
-check(before !== null && before.mode === 'shadow', 'C01 the real brain is wrapped, mode shadow');
+check(before !== null && before.mode === 'on', 'C01 the real brain is wrapped, mode on');
 const reset0 = before?.messages ?? 0;
 const plain = await createAxonBrain({ lane: true, slot }).ask({ text: 'count words in "hello brave new world"', place: 'chat' });
 const chat = await sendQueryToAxonBoundary('count words in "hello brave new world"');

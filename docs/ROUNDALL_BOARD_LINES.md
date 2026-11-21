@@ -7,3 +7,5 @@
 - GAPS: date "N days after DATE", "plus", "before", "difference between" (resolver); converter without the convert verb, time units, km/h; Text Compare bare "compare "a" with "b"" (File Compare tie); Text Cleaner verbs trim/collapse/delete, "empty lines", two options in one message.
 - WAVE 3a (2026-11-21): Loan Calculator is live with its OWN runner (src/tools/runners/financeRunners.ts, more finance runners go there). Phrasing: amount, percent rate and a length in years or months ("calculate a loan of 20000 at 6% over 5 years"). The term travels as milliseconds (one month is 2629800000 ms).
 - GAPS: a 0% rate (the value reader reads "0%" as a time); extra payments and the schedule (the guard yields); "monthly payment on ..." without a verb; amounts with a currency sign.
+- WAVE 3b (2026-11-21): Split Bill is live (runner in financeRunners.ts). Phrasing: a bill amount, a count before the word people, and a percent tip or no tip ("split 90 between 3 people with a 10% tip").
+- GAPS: unequal parts, rounding up, "each", a tip word with no percent (the lane yields); amounts with a currency sign; "split" without a count of people.

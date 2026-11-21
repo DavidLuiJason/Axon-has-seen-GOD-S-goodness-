@@ -24,6 +24,7 @@ import { CONVERT_ACTION } from '../tools/convertAction';
 import { TEXT_COMPARE_ACTION } from '../tools/textCompareAction';
 import { TEXT_CLEAN_ACTION } from '../tools/textCleanAction';
 import { LOAN_ACTION } from '../tools/loanAction';
+import { SPLIT_ACTION } from '../tools/splitAction';
 import { TEXT_REPLACE_ACTION } from '../tools/textReplaceAction';
 
 export function createAxonEngine(options: TaskEngineOptions = {}): TaskEngine {
@@ -44,6 +45,7 @@ export function createAxonEngine(options: TaskEngineOptions = {}): TaskEngine {
   engine.registerAction(TEXT_COMPARE_ACTION);
   engine.registerAction(TEXT_CLEAN_ACTION);
   engine.registerAction(LOAN_ACTION);
+  engine.registerAction(SPLIT_ACTION);
   engine.registerAction(TEXT_REPLACE_ACTION);
   return engine;
 }

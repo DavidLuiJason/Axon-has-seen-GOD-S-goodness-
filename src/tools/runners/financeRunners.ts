@@ -3,6 +3,7 @@
  * Loan Calculator: amount, yearly rate and term (the term arrives as MILLISECONDS, a duration slot) become the engine input; the engine works in whole cents.
  */
 import { calculateLoan } from '../engines/finance/loan';
+import { splitTip } from '../engines/finance/splitTip';
 import { RUNNER_REPLY_LIMIT, runnerFail, shortenReply, type RunnerArgs, type RunnerDeps, type RunnerOutcome, type ToolRunner } from './runnerTypes';
 
 const KEYS: readonly string[] = ['amount', 'yearlyRate', 'term', 'extraPayment'];
@@ -34,6 +35,24 @@ function runLoan(raw: RunnerArgs): RunnerOutcome {
   return { ok: true, toolId: id, result: { ...result, schedule: undefined }, reply: shortenReply(reply, RUNNER_REPLY_LIMIT) };
 }
 
+function runSplit(raw: RunnerArgs): RunnerOutcome {
+  const id = 'split-bill';
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return runnerFail(id, 'invalid-input', 'Provide the tool inputs as named values.');
+  for (const key of Object.keys(raw)) if (!['bill', 'tipPercent', 'people', 'roundUp'].includes(key)) return runnerFail(id, 'invalid-input', 'This input is not accepted.', key);
+  for (const key of ['bill', 'tipPercent', 'people']) {
+    if (!own(raw, key) || raw[key] === undefined) return runnerFail(id, 'missing-input', 'Provide this value.', key);
+    if (typeof raw[key] !== 'number' || !Number.isFinite(raw[key] as number)) return runnerFail(id, 'invalid-input', 'This value must be a number.', key);
+  }
+  if (raw.roundUp !== undefined && typeof raw.roundUp !== 'boolean') return runnerFail(id, 'invalid-input', 'This value must be yes or no.', 'roundUp');
+  const result = splitTip({ bill: raw.bill as number, tipPercent: raw.tipPercent as number, people: raw.people as number, ...(raw.roundUp === undefined ? {} : { roundUp: raw.roundUp as boolean }) });
+  if (!result.ok) return runnerFail(id, 'engine-refused', `The tool could not complete this request (${result.message}).`);
+  const even = result.shares.every((share) => share === result.shares[0]);
+  const who = even ? `Each person pays ${money(result.shares[0]!)}.` : `The shares are ${result.shares.map(money).join(', ')}.`;
+  const reply = `The tip is ${money(result.tipCents)}, so the total is ${money(result.totalCents)}. ${who}`;
+  return { ok: true, toolId: id, result, reply: shortenReply(reply, RUNNER_REPLY_LIMIT) };
+}
+
 export const FINANCE_RUNNERS: readonly ToolRunner[] = [
   { toolId: 'loan-calculator', run: async (args: RunnerArgs, _deps: RunnerDeps) => { try { return runLoan(args); } catch { return runnerFail('loan-calculator', 'invalid-input', 'The loan inputs could not be read.'); } } },
+  { toolId: 'split-bill', run: async (args: RunnerArgs, _deps: RunnerDeps) => { try { return runSplit(args); } catch { return runnerFail('split-bill', 'invalid-input', 'The bill inputs could not be read.'); } } },
 ];

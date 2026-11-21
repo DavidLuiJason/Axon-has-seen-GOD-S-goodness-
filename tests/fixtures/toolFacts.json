@@ -1547,7 +1547,7 @@
   "description": "Share a bill between people, with a tip.",
   "group": "finance",
   "screen": true,
-  "chat": "not-built",
+  "chat": "available",
   "leftOut": false,
   "purposes": [
    "Split bills and tips fairly in cents"

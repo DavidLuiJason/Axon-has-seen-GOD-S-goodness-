@@ -13,8 +13,8 @@ import { reflect } from '../reflect/reflect.ts';
 import type { Candidate, Reflection, StepRecord } from '../reflect/reflect.ts';
 import { judgeProposal } from '../judgment/judge.ts';
 import type { Judgment } from '../judgment/judge.ts';
-import { emptyDialogue, recordTurn, setPending } from '../dialogue/dialogueState.ts';
-import { livePending } from '../dialogue/dialogueAnswer.ts';
+import { clearPending, emptyDialogue, recordTurn, setPending } from '../dialogue/dialogueState.ts';
+import { livePending, readAnswer } from '../dialogue/dialogueAnswer.ts';
 import { stepDialogue } from '../dialogue/dialogueDriver.ts';
 import { verifyToolReplyFull } from '../../../safety/toolVerifiers2.ts';
 import { createCandidateStore, loadText, saveText } from './candidateStore.ts';
@@ -63,6 +63,8 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
   const counts = { messages: 0, repaired: 0, repairAsk: 0, dialogueAsked: 0, dialogueFilled: 0, dialogueCancelled: 0, rechecked: 0, recheckPassed: 0, recheckFailed: 0, recheckUnclear: 0, replyChanged: 0, wouldChange: 0, problems: 0 };
   let dialogue = emptyDialogue();
   let pendingOriginal: string | null = null;
+  // JOB 3: a repair that asked "Did you mean ...?" keeps both readings until the owner says yes, no or cancel, moves on, or the question expires.
+  let pendingRepair: { readonly original: string; readonly reading: string } | null = null;
   let turn = 0;
 
   async function ask(request: { text: string; place: string }): Promise<{ reply: ReplyLike; trace: unknown; orchestration: Orchestration }> {
@@ -80,9 +82,35 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     let repair: RepairResult | null = null;
     let replyChanged = false;
 
+    // 1a. An open "Did you mean ...?" (yes-no): yes runs the repaired reading, no runs the owner's exact words, cancel drops it,
+    //     anything else means the owner moved on: the question is dropped (never asked again) and the message is handled normally.
+    if (mode === 'on' && pendingRepair !== null) {
+      const held = pendingRepair;
+      pendingRepair = null;
+      const open = livePending(dialogue);
+      const answer = open !== null && open.kind === 'yes-no' ? readAnswer(dialogue, request.text) : null;
+      if (answer !== null && answer.kind === 'answers' && typeof answer.value === 'boolean') {
+        dialogue = clearPending(dialogue);
+        effectiveText = answer.value ? held.reading : held.original;
+        const out = await brain.askWithTrace({ text: effectiveText, place: request.place });
+        reply = out.reply;
+        trace = out.trace;
+        action = 'filled';
+        replyChanged = true;
+      } else if (answer !== null && answer.kind === 'cancels') {
+        dialogue = clearPending(dialogue);
+        reply = { content: CANCEL_REPLY, source: 'orchestrator:dialogue' };
+        trace = { entries: [{ stage: 'dialogue', state: 'ran', note: 'orchestrator dialogue: the owner cancelled the repair question' }] };
+        action = 'cancelled';
+        replyChanged = true;
+      } else {
+        dialogue = clearPending(dialogue);
+      }
+    }
+
     // 1. An open question: does this message answer it, cancel it, or start something new?
     const pending = livePending(dialogue);
-    if (mode === 'on' && pending !== null && pending.kind === 'text-slot' && pendingOriginal !== null) {
+    if (reply === null && mode === 'on' && pending !== null && pending.kind === 'text-slot' && pendingOriginal !== null) {
       probe = await brain.askWithTrace({ text: request.text, place: request.place });
       const step = stepDialogue(dialogue, request.text, traceReadsAsRequest(probe.trace));
       dialogue = step.state;
@@ -118,6 +146,8 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
         if (r.ok) repair = r.value; else problems.push('repair refused the input: ' + r.error);
       } catch { problems.push('repair failed'); }
       if (mode === 'on' && repair && repair.verdict === 'ASK' && repair.askQuestion) {
+        dialogue = setPending(dialogue, { kind: 'yes-no', question: repair.askQuestion, slot: null, tool: null });
+        if (livePending(dialogue) !== null) { pendingRepair = { original: request.text, reading: repair.reading }; pendingOriginal = null; }
         return await finish(repair, { content: repair.askQuestion, source: 'orchestrator:repair' }, null, request.text, 'none', true, problems);
       }
       const repaired = mode === 'on' && repair !== null && repair.verdict === 'REPAIRED';
@@ -132,6 +162,7 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
           dialogue = setPending(dialogue, { kind: 'text-slot', question: TEXT_QUESTION, slot: 'text', tool: null });
           if (livePending(dialogue) !== null) {
             pendingOriginal = effectiveText;
+            pendingRepair = null;
             reply = { content: TEXT_QUESTION, source: 'orchestrator:dialogue' };
             action = 'asked';
             replyChanged = true;
@@ -230,7 +261,7 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     ask,
     mode,
     /** JOB 1: a new or another chat starts with no open question (counts, candidates and the journal stay). */
-    resetDialogue: (): void => { dialogue = emptyDialogue(); pendingOriginal = null; },
+    resetDialogue: (): void => { dialogue = emptyDialogue(); pendingOriginal = null; pendingRepair = null; },
     candidates: () => store.list(),
     exportCandidates: () => store.exportText(),
     importCandidates: (text: string) => store.importText(text),

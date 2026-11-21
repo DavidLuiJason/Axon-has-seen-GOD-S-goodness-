@@ -1,0 +1,4 @@
+FROM: Director 111 (D111). Jobs 3 + 4 (+ 6a): the orchestrator is switched ON in real chat. No wrapper folder: copy into the repo root. It builds on the Job 0/1 package (AXON_JOB1_D111_merge.zip), which you already merged; it needs src/brain/orchestratedBrain.ts and rebuildChatBrainForTests from that package.
+TOUCHES NO SHARED TAG FILE: NOW.txt, MERGE_TAG.txt and DIRECTOR_NAP.txt are untouched; TAG_LINES_D111_JOB34.txt holds the three edits to paste (I did not have your current copies).
+KILL SWITCH: src/brain/orchestratorMode.ts, change 'on' to 'shadow' (and the pin A01 in tests/orchestratorConnection.test.ts / P00 in tests/orchestratorOnChat.test.ts if you want the tests green).
+MEASURED: docs/JOB3_4_ORCHESTRATOR_ON_D111.md section 3. 13 older tool-wave tests stay red exactly as on main_2.
