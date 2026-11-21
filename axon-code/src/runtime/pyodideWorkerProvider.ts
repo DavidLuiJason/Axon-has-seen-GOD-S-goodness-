@@ -56,8 +56,8 @@ const PYTHON_AUDIT_GUARD = [
   '        flags = args[2] if len(args) > 2 and isinstance(args[2], int) else 0',
   "        writing = (isinstance(mode, str) and any(flag in mode for flag in 'wax+')) or bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND))",
   '        if writing:',
-  '            resolved = os.path.abspath(path) if isinstance(path, str) else ',
-  "            if not (resolved == '/project' or resolved.startswith('/project/')):",
+  '            resolved = os.path.realpath(os.path.abspath(os.fsdecode(path))) if isinstance(path, (str, bytes, os.PathLike)) else None',
+  "            if resolved is None or not (resolved == '/project' or resolved.startswith('/project/')):",
   "                raise PermissionError('Writes are restricted to the /project virtual directory.')",
   'sys.addaudithook(_axon_audit)'
 ].join('\n');
@@ -96,8 +96,8 @@ export function createPyodideWorkerSource(baseUrl: string): string {
     'self.onmessage = async (event) => {',
     '  const request = event.data;',
     '  if (!request || request.type !== "run" || typeof request.source !== "string") return;',
-    '  const started = Date.now(); let outputBytes = 0; let outputFailed = false; const maxOutputBytes = request.maxOutputBytes;',
-    '  const emit = (stream, value) => { if (outputFailed) return false; const text = String(value); const bytes = new TextEncoder().encode(text).byteLength; if (outputBytes + bytes > maxOutputBytes) { outputFailed = true; self.postMessage({type:"failed", error:"Python output limit exceeded."}); return false; } outputBytes += bytes; self.postMessage({type:"output", stream, text}); return true; };',
+    '  const started = Date.now(); let outputBytes = 0; let outputFailed = false; const maxOutputBytes = request.maxOutputBytes; const nonce = request.nonce;',
+    '  const emit = (stream, value) => { if (outputFailed) return false; const text = String(value); const bytes = new TextEncoder().encode(text).byteLength; if (outputBytes + bytes > maxOutputBytes) { outputFailed = true; self.postMessage({type:"failed", nonce, error:"Python output limit exceeded."}); return false; } outputBytes += bytes; self.postMessage({type:"output", nonce, stream, text}); return true; };',
     '  try {',
     `    if (!pyodideInstance) pyodideInstance = await loadPyodide({ indexURL: request.baseUrl, jsglobals: Object.create(null) });`,
     '    pyodideInstance.FS.mkdirTree("/project");',
@@ -110,8 +110,8 @@ export function createPyodideWorkerSource(baseUrl: string): string {
     '    pyodideInstance.setStderr({ batched: (text) => emit("stderr", text) });',
     '    const value = await pyodideInstance.runPythonAsync(request.source);',
     '    const files = []; const walk = (directory) => { for (const name of pyodideInstance.FS.readdir(directory)) { if (name === "." || name === "..") continue; const target = directory === "/" ? "/" + name : directory + "/" + name; const stat = pyodideInstance.FS.stat(target); if (pyodideInstance.FS.isDir(stat.mode)) walk(target); else if (pyodideInstance.FS.isFile(stat.mode) && target.startsWith("/project/")) files.push({path:target.slice(9), content:new TextDecoder().decode(pyodideInstance.FS.readFile(target))}); } }; walk("/project");',
-    '    if (!outputFailed) self.postMessage({type:"completed", exitCode:0, value:value == null ? "" : String(value), files, elapsedMs:Date.now()-started});',
-    '  } catch (error) { self.postMessage({type:"failed", error:String(error), traceback:String(error), elapsedMs:Date.now()-started}); }',
+    '    if (!outputFailed) self.postMessage({type:"completed", nonce, exitCode:0, value:value == null ? "" : String(value), files, elapsedMs:Date.now()-started});',
+    '  } catch (error) { self.postMessage({type:"failed", nonce, error:String(error), traceback:String(error), elapsedMs:Date.now()-started}); }',
     '};'
   ].join('\n');
 }
@@ -149,7 +149,7 @@ export class PyodideWorkerExecutionAdapter implements RuntimeAdapter {
     }
     const worker = this.workers.create(createPyodideWorkerSource(this.pack.baseUrl));
     return await new Promise<ExecutionResult>((resolve) => {
-      let settled = false; let stdout = ''; let stderr = ''; let outputBytes = 0; let timer: ReturnType<typeof setTimeout>;
+      let settled = false; let stdout = ''; let stderr = ''; let outputBytes = 0; let timer: ReturnType<typeof setTimeout>; const nonce = `${request.requestId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const finish = async (status: ExecutionResult['status'], notes: string[], exitCode?: number, value?: string) => {
         if (settled) return;
         settled = true; clearTimeout(timer); signal?.removeEventListener('abort', onAbort);
@@ -160,7 +160,7 @@ export class PyodideWorkerExecutionAdapter implements RuntimeAdapter {
       timer = setTimeout(() => { void finish('timed-out', ['Python execution exceeded its wall-clock limit; Worker terminated.']); }, request.timeoutMs);
       signal?.addEventListener('abort', onAbort, { once: true });
       worker.addEventListener('message', (event) => {
-        const message = event.data; if (!message || typeof message.type !== 'string') return;
+        const message = event.data; if (!message || typeof message.type !== 'string' || message.nonce !== nonce) return;
         if (message.type === 'output' && typeof message.text === 'string') {
           outputBytes += new TextEncoder().encode(message.text).byteLength;
           if (outputBytes > request.outputLimitBytes) { void finish('failed', ['Python output exceeded the host-enforced byte limit; Worker terminated.'], 1); return; }
@@ -188,7 +188,7 @@ export class PyodideWorkerExecutionAdapter implements RuntimeAdapter {
         }
       });
       worker.addEventListener('error', (event) => { void finish('failed', [`Pyodide Worker failed: ${String(event?.message ?? 'unknown Worker error')}`], 1); });
-      worker.postMessage({ type: 'run', source: entry.source, baseUrl: this.pack!.baseUrl, maxOutputBytes: request.outputLimitBytes, stdin: request.stdin ?? '', files: projectFiles });
+      worker.postMessage({ type: 'run', nonce, source: entry.source, baseUrl: this.pack!.baseUrl, maxOutputBytes: request.outputLimitBytes, stdin: request.stdin ?? '', files: projectFiles });
     });
   }
 }

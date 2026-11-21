@@ -1,20 +1,13 @@
-WORKSTREAM: AXON CODE (Round 14 Continuation 6)
-ACCOUNT / ROLE: ChatGPT = builder; Claude = Director/verifier
-UPDATED: 2026-11-17
-STATE NOW: Start gate PASSED: 1,390/1,390; post-change full suite 1,407/1,407, 0 failed, 0 skipped; ratchet unchanged.
-STATE NOW: R1 JavaScript Run/Stop and R3 IndexedDB jobs are BUILT with Node contract tests; Chromium proof NOT RUN.
-BASE TO START FROM: AXON_CODE_R14_DIRECTOR_BASE_4.zip + AXON_CODE_VENDOR_PACK_V2.zip + AXON-CODE-R14-PATCH1-merge.zip; post-change full-suite result: 1,407 passed, 0 failed, 0 skipped.
+WORKSTREAM: AXON CODE (Round 14 build, Round 15 verification)
+ACCOUNT / ROLE: ChatGPT = builder (separate chat); Claude = Director and verifier
+UPDATED: 2026-11-21
+STATE NOW: continuations 3 to 6 delivered and Director-verified with fixes. Continuation 7 delivered a small partial delta (Python path-audit hardening, message nonces). S1 (Python in a sandboxed browser frame) is PARTIAL; S2 to S6 (worker hardening, save-before-run, jobs dispatch, verify:final, honest refresh) are NOT done. Browser Run for JavaScript and the jobs panel are built from source. 1,407 tests in the builder environment, identical with only unshare hidden. Nothing proven in a real browser or on a phone.
+BASE TO START FROM: AXON_CODE_R14_DIRECTOR_BASE_6.zip + vendor pack V2 (keep executable bits). Build, then run the suite with run-suite-resumable.sh (detached; a tool time limit cuts a foreground run).
 OWNS: axon-code/, docs/AXON_CODE_*.md, workstreams/AXON_CODE.txt
-MUST NOT TOUCH: src/, tests/, tools/, public/ at repository ROOT, .github, root package.json/tsconfig.json, NOW.txt, MERGE_TAG.txt, docs/JOB_BOARD.md, other workstreams
+MUST NOT TOUCH: src/, tests/, tools/, public/ at the repository ROOT, .github, root package.json and tsconfig.json, NOW.txt, MERGE_TAG.txt, docs/JOB_BOARD.md, other workstream files
 NOT BEING DONE HERE: AXON Web, Apps, Games, AI Studio screens, tools-to-brain registration.
-SCREEN CONTRACT: docs/AXON_CODE_SCREEN_CONTRACT.json updated for Run/Stop/stdin/jobs; docs/AXON_CODE_SCREEN_READINESS.md was absent in supplied base.
-R0: SKIPPED — axon-code-ci-results.zip was not attached.
-R1: BUILT — opaque-origin JavaScript worker; 5-second timeout, 256 KiB output cap, fresh worker per run; Chromium proof NOT RUN.
-R2: NOT BUILT — browser Pyodide worker not implemented; no fake interpreter and no weakening of the worker network/import policy.
-R3: PARTIAL BUILT — IndexedDB states, quota, concurrency cap, ownership rule, reload interruption; browser dispatch proof NOT RUN; Pause/Resume unsupported.
-R4: measured initial JS, lazy xterm and Pyodide package bytes; Chromium CPU/heap timings and phone metrics NOT RUN.
-R5: screen contract and built-UI ID tests updated; missing Director readiness file reported, not recreated.
-R6: ten-task Playwright acceptance script added; NOT RUN because Chromium executable is unavailable.
-R7: capability matrix and Round 15 handover updated from measured/NOT RUN evidence only.
-NEXT: implement a secure browser Pyodide worker and real queue dispatch, then run Chromium/cloud acceptance and phone proof.
-WAITING ON THE OWNER: cloud CI/browser result ZIP, real-device proof, and clean-install verification when registry access is available.
+PRODUCT: own screen in AXON Tools (grey tile today). The user runs code; AXON runs background jobs; both can pause, resume, cancel (a USER may cancel any job in their workspace). Job service first, screen second. Phones: Infinix Note 10 (4 GB) now, Infinix Hot 60i (8 GB) soon.
+SCREENS: docs/AXON_CODE_SCREEN_CONTRACT.json (ids and states) and docs/AXON_CODE_SCREEN_READINESS.md (Director's file). JavaScript Run, output, stdin and jobs panel exist; Python in the browser does not yet (show Not available yet).
+WHAT RUNS WHERE: axon-code/docs/AXON_CODE_PHONE_CAPABILITY_MATRIX.md.
+NEXT: continue continuation 7 from S1, one package per delta; then the cloud verify run, device proof on both phones, the Director's final check (npm run verify:final) and the AI Studio screens prompt.
+WAITING ON THE OWNER: axon-code-ci-results (browser logs); device proof on the phones.

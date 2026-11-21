@@ -45,6 +45,7 @@ docs/ROUND12_UI_TEST_RESULTS.json
 docs/ROUND12_WORKBENCH_PREVIEW.png
 docs/ROUND14_IMPLEMENTATION_REPORT.md
 docs/ROUND15_HANDOVER.md
+docs/c7-evidence/CONTINUATION7_PARTIAL.md
 package-lock.json
 package.json
 requirements-linux-pty.txt

@@ -31,3 +31,9 @@ test('C4 installs only verified offline packs and supports explicit removal', as
 });
 test('C4 does not install a tampered optional pack', async () => { let writes = 0; const store = { async get() { return null; }, async put() { writes++; }, async remove() { return false; } }; const bad = makePack(); bad.readFile = async () => new Uint8Array([7]); const result = await installOfflinePyodidePack(store, bad); assert.equal(result.installed, false); assert.equal(writes, 0);
 });
+test('C7 guard resolves decoded paths and denies non-project writes including invalid paths', () => {
+  const source = createPyodideWorkerSource('file:///axon-packs/pyodide/');
+  assert.match(source, /os\.path\.realpath\(os\.path\.abspath\(os\.fsdecode\(path\)\)\)/);
+  assert.match(source, /resolved is None or not \(resolved == '\/project' or resolved\.startswith\('\/project\/'\)\)/);
+  assert.match(source, /Writes are restricted to the \/project virtual directory/);
+});
