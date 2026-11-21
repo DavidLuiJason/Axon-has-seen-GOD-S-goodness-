@@ -14,6 +14,11 @@ import { encoderDecoderGuard } from '../../tools/runners/guards/encoderDecoderGu
 import { hashToolGuard } from '../../tools/runners/guards/hashToolGuard';
 import { qrMakerGuard } from '../../tools/runners/guards/qrMakerGuard';
 import { findReplaceGuard } from '../../tools/runners/guards/findReplaceGuard';
+import { textCleanerLaneGuard } from '../../tools/runners/guards/textCleanerLaneGuard';
+import { textCompareLaneGuard } from '../../tools/runners/guards/textCompareLaneGuard';
+import { converterLaneGuard } from '../../tools/runners/guards/converterLaneGuard';
+// ROUND-ALL (D471): for these four tools the lane uses the *LaneGuard (written for the shaper path and proven with the real brain). The earlier part guards (dateCalculatorGuard, converterGuard, textCompareGuard, textCleanerGuard) judge a spoken-word binder path that the lane no longer takes; they stay for their own tests.
+import { dateCalculatorLaneGuard } from '../../tools/runners/guards/dateCalculatorLaneGuard';
 import { percentageHelperGuard } from '../../tools/runners/guards/percentageHelperGuard';
 import { calculatorGuard } from '../../tools/runners/guards/calculatorGuard';
 import { randomPickerGuard } from '../../tools/runners/guards/randomPickerGuard';
@@ -71,4 +76,4 @@ const sortLinesGuard: LaneGuard = (args, message) => {
   return null;
 };
 
-export const LANE_GUARDS: Readonly<Record<string, LaneGuard>> = Object.freeze({ 'text-counter': textCounterGuard, 'case-converter': caseConverterGuard, 'sort-lines': sortLinesGuard, 'number-to-words': numberToWordsGuard, 'encoder-decoder': encoderDecoderGuard, 'hash-tool': hashToolGuard, 'qr-maker': qrMakerGuard, 'find-replace': findReplaceGuard , 'password-generator': passwordGeneratorGuard , 'random-picker': randomPickerGuard , 'calculator': calculatorGuard , 'percentage-helper': percentageHelperGuard });
+export const LANE_GUARDS: Readonly<Record<string, LaneGuard>> = Object.freeze({ 'text-counter': textCounterGuard, 'case-converter': caseConverterGuard, 'sort-lines': sortLinesGuard, 'number-to-words': numberToWordsGuard, 'encoder-decoder': encoderDecoderGuard, 'hash-tool': hashToolGuard, 'qr-maker': qrMakerGuard, 'find-replace': findReplaceGuard , 'password-generator': passwordGeneratorGuard , 'random-picker': randomPickerGuard , 'calculator': calculatorGuard , 'percentage-helper': percentageHelperGuard , 'date-calculator': dateCalculatorLaneGuard , 'converter': converterLaneGuard , 'text-compare': textCompareLaneGuard , 'text-cleaner': textCleanerLaneGuard });

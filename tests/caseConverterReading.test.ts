@@ -24,7 +24,8 @@ for (const [text, want] of ANSWERS) {
   const r = await brain.ask({ text, place: 'chat' });
   check(r.source === 'runner:case-converter' && norm(r.content) === want + TAIL && r.taskId !== undefined, 'lane answers with the right words and a task record: ' + text);
 }
-const MUST_NOT_ANSWER = ['hello', 'what can you do', 'translate "hello" to french', 'what is uppercase', 'convert "hello" to', 'do not convert "abc" to uppercase', 'convert "a b" to uppercase and count its words', 'convert 5 miles to km', 'count words in "a b c"'];
+// ROUND-ALL (D471): "convert 5 miles to km" is now answered by the live Converter, so it is no longer a message this tool must leave alone.
+const MUST_NOT_ANSWER = ['hello', 'what can you do', 'translate "hello" to french', 'what is uppercase', 'convert "hello" to', 'do not convert "abc" to uppercase', 'convert "a b" to uppercase and count its words', 'count words in "a b c"'];
 for (const text of MUST_NOT_ANSWER) { const r = await brain.ask({ text, place: 'chat' }); check(r.source !== 'runner:case-converter', 'the case lane does not answer: ' + text); }
 // everything the case lane does NOT answer is word for word what the brain said before LIVE8-3
 for (const text of [...MUST_NOT_ANSWER, 'tell me a joke', 'what is 12 times 3', 'thank you', 'how many words are in "a b"']) {

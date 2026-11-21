@@ -28,7 +28,7 @@ check(r7.args.pattern === 'fox' || r7.args.pattern === undefined || r7.args.patt
 const o = bindArguments(input('sort-lines', 'sort "b" with "a"'));
 check(o.args.replacement === undefined, 'a tool with no roles is not touched');
 check(wordBefore('x  with "y"', 8) === 'with' && wordBefore('"y"', 0) === '' && wordBefore('Ab9 "c"', 4) === 'ab9', 'wordBefore reads the one word before a quote');
-check(Object.keys(TEXT_ROLE_MARKERS).join() === 'find-replace', 'only Find and Replace has roles');
+check(Object.keys(TEXT_ROLE_MARKERS).join() === 'find-replace,text-compare', 'only Find and Replace and Text Compare have roles');
 check(Object.values(TEXT_ROLE_MARKERS['find-replace']!).every((m) => Object.keys(m).every((w) => /^[a-z]+$/.test(w) && w.length >= 2)), 'markers are single lowercase words');
 const all = Object.values(TEXT_ROLE_MARKERS['find-replace']!).flatMap((m) => Object.keys(m)); check(new Set(all).size === all.length, 'no marker word belongs to two roles');
 // MUTANT: the order rule alone would have put "cat" into the text slot and "fox" into the pattern slot

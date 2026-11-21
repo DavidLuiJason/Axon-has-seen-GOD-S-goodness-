@@ -19,6 +19,10 @@ import { PASSWORD_ACTION } from '../tools/passwordAction';
 import { RANDOM_ACTION } from '../tools/randomAction';
 import { CALCULATE_ACTION } from '../tools/calculateAction';
 import { PERCENT_ACTION } from '../tools/percentAction';
+import { DATE_ACTION } from '../tools/dateAction';
+import { CONVERT_ACTION } from '../tools/convertAction';
+import { TEXT_COMPARE_ACTION } from '../tools/textCompareAction';
+import { TEXT_CLEAN_ACTION } from '../tools/textCleanAction';
 import { TEXT_REPLACE_ACTION } from '../tools/textReplaceAction';
 
 export function createAxonEngine(options: TaskEngineOptions = {}): TaskEngine {
@@ -34,6 +38,10 @@ export function createAxonEngine(options: TaskEngineOptions = {}): TaskEngine {
   engine.registerAction(RANDOM_ACTION);
   engine.registerAction(CALCULATE_ACTION);
   engine.registerAction(PERCENT_ACTION);
+  engine.registerAction(DATE_ACTION);
+  engine.registerAction(CONVERT_ACTION);
+  engine.registerAction(TEXT_COMPARE_ACTION);
+  engine.registerAction(TEXT_CLEAN_ACTION);
   engine.registerAction(TEXT_REPLACE_ACTION);
   return engine;
 }

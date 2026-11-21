@@ -30,6 +30,7 @@ import type { KnowledgeSlot } from './knowledge/slot';
 import { createLaneRandom } from './laneRandom';
 import { normaliseRandomArgs } from '../tools/runners/randomWords';
 import { foldCalculatorAngle } from '../tools/runners/calculatorWords';
+import { foldDateOperation, foldDateUnit } from '../tools/runners/dateWords';
 
 /** RAND1: the lane's real (secure) random source; it throws only when asked and none exists, and the lane then yields. */
 const LANE_RANDOM = createLaneRandom();
@@ -61,7 +62,7 @@ export function buildLaneConfig(switches: RunnerSwitches = LIVE_SWITCHES, guards
     isOn: (toolId) => switches[toolId] === 'runner',
     needsState: (toolId) => STATE_TOOL_IDS.includes(toolId),
     guards,
-    adjust: (toolId, args, message) => (toolId === 'sort-lines' ? readSortReverse(args, message) : toolId === 'random-picker' ? normaliseRandomArgs(args) : toolId === 'calculator' ? { ...args, angle: foldCalculatorAngle(args.angle) } : args),
+    adjust: (toolId, args, message) => (toolId === 'sort-lines' ? readSortReverse(args, message) : toolId === 'random-picker' ? normaliseRandomArgs(args) : toolId === 'calculator' ? { ...args, angle: foldCalculatorAngle(args.angle) } : toolId === 'date-calculator' ? { ...args, ...(args.operation !== undefined ? { operation: foldDateOperation(args.operation) } : {}), ...(args.unit !== undefined ? { unit: foldDateUnit(args.unit) } : {}) } : args),
     allowDefaults: (toolId) => LIVE_SAY_DEFAULTS.includes(toolId),
     run: (toolId, args, deps) => execute(toolId, args, deps, switches),
     record: async (toolId, args, result) => {

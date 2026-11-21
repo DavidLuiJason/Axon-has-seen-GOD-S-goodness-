@@ -11,6 +11,10 @@ export const TEXT_ROLE_MARKERS: Readonly<Record<string, Readonly<Record<string, 
     replacement: Object.freeze({ with: true, by: true, to: true }),
     text: Object.freeze({ in: true, within: true, inside: true, from: true, on: true }),
   }),
+  'text-compare': Object.freeze({
+    original: Object.freeze({ compare: true, diff: true, from: true, original: true, first: true, old: true, before: true }),
+    revised: Object.freeze({ with: true, and: true, to: true, against: true, versus: true, vs: true, revised: true, second: true, new: true, after: true }),
+  }),
 });
 
 /** the lowercase word that ends right before `at` (letters and digits only), or '' */

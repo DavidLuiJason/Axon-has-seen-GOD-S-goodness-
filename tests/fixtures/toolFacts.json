@@ -427,7 +427,7 @@
   "description": "Convert lengths, weights, temperatures and other units, and number bases.",
   "group": "files-convert",
   "screen": true,
-  "chat": "not-built",
+  "chat": "available",
   "leftOut": false,
   "purposes": [
    "Read and write bounded delimited tables with quoted fields and explicit row-shape warnings.",
@@ -614,7 +614,7 @@
   "description": "Remove extra spaces, blank lines and duplicate lines.",
   "group": "text-writing",
   "screen": true,
-  "chat": "not-built",
+  "chat": "available",
   "leftOut": false,
   "purposes": [
    "Clean whitespace, blank lines, line endings, zero-width characters and selected punctuation in text."
@@ -712,7 +712,7 @@
   "description": "Show the differences between two texts.",
   "group": "text-writing",
   "screen": true,
-  "chat": "not-built",
+  "chat": "available",
   "leftOut": false,
   "purposes": [
    "Compare two text values by line or word and report same, added and removed tokens."
@@ -935,7 +935,7 @@
   "description": "Add or subtract days, or find the days between two dates.",
   "group": "time-counters",
   "screen": true,
-  "chat": "not-built",
+  "chat": "available",
   "leftOut": false,
   "purposes": [
    "Parse calendar dates and calculate date differences, offsets, weekdays, day-of-year, ISO weeks and weekdays in a range."

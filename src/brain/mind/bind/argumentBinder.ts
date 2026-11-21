@@ -127,6 +127,7 @@ export function bindArguments(input: BindInput): BindResult {
 
   for (const slot of schema.slots) {
     if (Object.prototype.hasOwnProperty.call(args, slot.name)) continue;
+    if (shaped?.whole) continue; // a shape marked whole is built entirely by its shaper: slots it left out stay empty (the tool's runner and the lane guard check the rest)
     if (slot.kind === 'number') {
       const f = takeValue((v) => NUMBER_KINDS[v.kind] === true && isNum(v.value) && v.error === undefined);
       if (f) { use(f); args[slot.name] = f.v.value; kinds[slot.name] = 'number'; }
@@ -156,7 +157,7 @@ export function bindArguments(input: BindInput): BindResult {
   }
 
   // text slots (rule 4)
-  const textSlots = schema.slots.filter((s) => s.kind === 'text' && s.required && !Object.prototype.hasOwnProperty.call(args, s.name));
+  const textSlots = schema.slots.filter((s) => !shaped?.whole && s.kind === 'text' && s.required && !Object.prototype.hasOwnProperty.call(args, s.name));
   if (textSlots.length > 0) {
     const cut = (s: BindSpan): string => {
       let out = ''; let at = s.start;
@@ -195,7 +196,7 @@ export function bindArguments(input: BindInput): BindResult {
 
   // defaults and missing (rule 5)
   for (const slot of schema.slots as readonly SlotSpec[]) {
-    if (slot.kind === 'time' || Object.prototype.hasOwnProperty.call(args, slot.name)) continue;
+    if (shaped?.whole || slot.kind === 'time' || Object.prototype.hasOwnProperty.call(args, slot.name)) continue;
     if (missing.some((m) => m.slot === slot.name)) continue;
     const d = Object.prototype.hasOwnProperty.call(SLOT_DEFAULTS, tool) ? SLOT_DEFAULTS[tool][slot.name] : undefined;
     if (!slot.required && d?.fillOptional !== true) continue;
@@ -207,8 +208,9 @@ export function bindArguments(input: BindInput): BindResult {
   let decision: BindResult['decision'] = 'run';
   if (missing.length > 0) { decision = 'ask'; why.push('Something needed was not said: ' + missing.map((m) => m.slot).join(', ') + '.'); }
   else {
-    if (schema.effects.some((e) => e !== 'shows-result')) why.push('This tool does more than show a result.');
-    if (schema.undo !== 'not-needed') why.push('This cannot simply be taken back.');
+    // a shape that only ever shows a result (a unit conversion of a tool that can also write files) is not held for the tool's other effects
+    if (!shaped?.showsResultOnly && schema.effects.some((e) => e !== 'shows-result')) why.push('This tool does more than show a result.');
+    if (!shaped?.showsResultOnly && schema.undo !== 'not-needed') why.push('This cannot simply be taken back.');
     if (input.evidence === 'value' && !shaped?.strong) why.push('The message only carried a value; it did not ask for this tool.');
     if (weak) why.push('A value in the message was uncertain.');
     if (why.length > 0) decision = 'confirm-first';
