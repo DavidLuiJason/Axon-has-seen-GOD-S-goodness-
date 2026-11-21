@@ -229,6 +229,8 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
   return {
     ask,
     mode,
+    /** JOB 1: a new or another chat starts with no open question (counts, candidates and the journal stay). */
+    resetDialogue: (): void => { dialogue = emptyDialogue(); pendingOriginal = null; },
     candidates: () => store.list(),
     exportCandidates: () => store.exportText(),
     importCandidates: (text: string) => store.importText(text),

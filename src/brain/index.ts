@@ -28,6 +28,9 @@ import { readSortReverse } from '../tools/runners/sortModeWords';
 import type { LaneConfig } from './mind/directLane';
 import type { KnowledgeSlot } from './knowledge/slot';
 import { createLaneRandom } from './laneRandom';
+import { withOrchestrator } from './orchestratedBrain';
+import type { OrchestratedBrain, OrchestratorStatus } from './orchestratedBrain';
+import { ORCHESTRATOR_MODE } from './orchestratorMode';
 import { normaliseRandomArgs } from '../tools/runners/randomWords';
 import { foldCalculatorAngle } from '../tools/runners/calculatorWords';
 import { foldDateOperation, foldDateUnit } from '../tools/runners/dateWords';
@@ -99,7 +102,41 @@ export function createAxonBrain(options: { lane: boolean; slot?: KnowledgeSlot; 
   return createMind({ providers: [localRules, ...BRAIN_PROVIDERS], fallback: createFoundation({ abilities: { answerRequestFallback } }), planned: PLANNED_SOURCES, ...(options.slot ? { slot: options.slot } : {}), ...(options.lane ? { lane: buildLaneConfig(options.switches, options.guards) } : {}), liveFacts: () => buildLiveFacts({ catalog: CATALOG_TOOLS, capabilities: listCapabilities(), abilities: ABILITY_SOURCES, leftOut: LEFT_OUT_TOOL_IDS, chatLinks: CHAT_ACTION_LINKS }) });
 }
 
+let sharedOrchestrated: OrchestratedBrain | null = null;
+
+/**
+ * The brain the real chat uses (JOB 1, D111): the one Mind wrapped by the orchestrator in the mode pinned in orchestratorMode.ts (shadow today:
+ * the reply is exactly the Mind's). If the wrapper cannot be built, the plain Mind is used, so the chat never depends on the orchestrator.
+ */
+function buildSharedBrain(slot?: KnowledgeSlot): void {
+  const mind = createAxonBrain({ lane: true, ...(slot ? { slot } : {}) });
+  try {
+    sharedOrchestrated = withOrchestrator(mind, { mode: ORCHESTRATOR_MODE });
+    shared = sharedOrchestrated;
+  } catch {
+    sharedOrchestrated = null;
+    shared = mind;
+  }
+}
+
+/**
+ * The brain the real chat uses (JOB 1, D111): the one Mind wrapped by the orchestrator in the mode pinned in orchestratorMode.ts (shadow today:
+ * the reply is exactly the Mind's). If the wrapper cannot be built, the plain Mind is used, so the chat never depends on the orchestrator.
+ */
 export function getAxonBrain(): Mind {
-  if (!shared) shared = createAxonBrain({ lane: true });
-  return shared;
+  if (!shared) buildSharedBrain();
+  return shared as Mind;
+}
+
+/** TEST HOOK (JOB 1): rebuilds the shared chat brain exactly as the app builds it, but with a given knowledge slot (the app's own slot needs Vite's import.meta.env, which Node tests lack). */
+export function rebuildChatBrainForTests(slot: KnowledgeSlot): Mind {
+  shared = null;
+  buildSharedBrain(slot);
+  return shared as unknown as Mind;
+}
+
+/** What the orchestrator has seen in the real chat (null when it is not connected): the numbers that decide shadow -> on. */
+export function getOrchestratorStatus(): OrchestratorStatus | null {
+  getAxonBrain();
+  return sharedOrchestrated ? sharedOrchestrated.orchestratorStatus() : null;
 }
