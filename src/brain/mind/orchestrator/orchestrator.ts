@@ -14,6 +14,7 @@ import type { Candidate, Reflection, StepRecord } from '../reflect/reflect.ts';
 import { judgeProposal } from '../judgment/judge.ts';
 import { buildSituation } from './situation.ts';
 import { NOT_CONVENED, needsCouncil, plainCouncilNote } from './councilGate.ts';
+import { makeStepGate } from './stepGate.ts';
 import type { Judgment } from '../judgment/judge.ts';
 import { clearPending, emptyDialogue, recordTurn, setPending } from '../dialogue/dialogueState.ts';
 import { livePending, readAnswer } from '../dialogue/dialogueAnswer.ts';
@@ -65,7 +66,7 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
   const judge = options.judge ?? judgeProposal;
   const store = createCandidateStore();
   const journal = createPredictionJournal();
-  const counts = { messages: 0, repaired: 0, repairAsk: 0, dialogueAsked: 0, dialogueFilled: 0, dialogueCancelled: 0, rechecked: 0, recheckPassed: 0, recheckFailed: 0, recheckUnclear: 0, replyChanged: 0, wouldChange: 0, problems: 0, councilConvened: 0, councilSkipped: 0, councilFailed: 0, councilNotes: 0 };
+  const counts = { messages: 0, repaired: 0, repairAsk: 0, dialogueAsked: 0, dialogueFilled: 0, dialogueCancelled: 0, rechecked: 0, recheckPassed: 0, recheckFailed: 0, recheckUnclear: 0, replyChanged: 0, wouldChange: 0, problems: 0, councilConvened: 0, councilSkipped: 0, councilFailed: 0, councilNotes: 0, stepsHeld: 0 };
   let dialogue = emptyDialogue();
   let pendingOriginal: string | null = null;
   // JOB 3: a repair that asked "Did you mean ...?" keeps both readings until the owner says yes, no or cancel, moves on, or the question expires.
@@ -295,10 +296,11 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     noteOutcome: (predictionId: string, cameTrue: boolean): boolean => journal.outcome(predictionId, cameTrue),
     calibration,
     /** Runs a validated plan; each step's text goes through ask() and counts only when its answer was re-checked and passed. */
-    runPlan: (goal: Goal, plan: Plan): Promise<PlanRun> => runPlan(goal, plan, async (text) => {
+    /** JOB 7: each step is judged before it runs; `approvedTools` are tools the owner has said yes to for this plan (an ASK is then allowed; a STOP never is). */
+    runPlan: (goal: Goal, plan: Plan, approvedTools: readonly string[] = []): Promise<PlanRun> => runPlan(goal, plan, async (text) => {
       const r = await ask({ text, place: 'chat' });
       return { verified: r.orchestration.verification !== null && r.orchestration.verification.report.mayClaimSuccess, source: r.reply.source };
-    }),
+    }, makeStepGate(judge, { approvedTools, onHeld: () => { counts.stepsHeld++; }, onFailed: () => { counts.councilFailed++; } })),
     /** What the orchestrator has seen so far: the numbers that show whether it is safe to switch from shadow to on. */
     stats: () => ({ ...counts, mode }),
     saveTo: (storage: TextStorage): boolean => { const a = saveText(storage, KEY_CANDIDATES, store.exportText()); const b = saveText(storage, KEY_JOURNAL, journal.exportText()); return a && b; },

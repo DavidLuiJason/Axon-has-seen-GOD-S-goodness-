@@ -12,7 +12,7 @@ LAWS OF THIS FILE (owner 2026-11-04 to 11-12):
 8. Each board line ends with the Director's completion estimate for its current work ("~40%"); the Director also tells the owner it in every reply on that work.
 
 DIRECTORS BOARD:
-D111+D926 (2026-11-22): THE BRAIN (three Directors: D84, D926, D111). Done: Jobs 0,1,3,4,13,2,5 (orchestrator ON; situation builder; council gate). Next: Job 7 planner, 6, 8. Leaves Web, Games, Apps, Code, tools alone.
+D111+D926 (2026-11-22): THE BRAIN (D84, D926, D111). Done: Jobs 0,1,2,3,4,5,7,13 (ON in chat; council gate; step gate). Next: 6 (yes/no for a held step), 8. Leaves Web, Games, Apps, Code, tools alone.
 D471 (2026-11-11): verifying and merging ChatGPT's tool-connection waves (CONNECT2: 7 tools live). Next: the lane's random source, then slot filling for tools the brain cannot bind yet. Not touching AXON Code or Market Scope.
 D321 (2026-11-11): OVERSEER, not a higher rank: checks every Director's return against its lane, fixes breaks that hit all cloud builds, uses ChatGPT as eyes for big checks. Now: red build fix D321-FIX1. Leaves AXON Code, Market Scope and tool wiring alone.
 D204 (2026-11-12): AXON WEB (= AXON Browser). Done: Web merge, screen doc, WEB6 tab groups. Next: incognito (WEB7), then the isolated AXON session. Leaves brain, tools, Code, Apps, screens and screen capture alone. ~30% of AXON Web.
