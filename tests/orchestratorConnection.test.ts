@@ -72,7 +72,7 @@ const wrap = (m: ReturnType<typeof fakeMind>, options: Parameters<typeof withOrc
   const m2 = fakeMind(GOOD);
   const b2 = wrap(m2, { mode: 'shadow' });
   const o2 = await b2.askWithTrace({ text: MSG, place: 'chat' });
-  check(o2.reply === GOOD && o2.trace === m2.trace, 'B02 shadow: reply and trace are the very objects the Mind made');
+  check(o2.reply === GOOD && (o2.trace as unknown) === (m2.trace as unknown), 'B02 shadow: reply and trace are the very objects the Mind made');
   check(m2.mind.seen.length === 1 && m2.mind.seen[0] === MSG, 'B03 shadow: the Mind ran ONCE, on the owner\'s exact words');
   const st = b2.orchestratorStatus();
   check(st.mode === 'shadow' && st.messages === 1 && st.failures === 0 && st.timeouts === 0 && st.fallbacks === 0 && st.orchestratorReplies === 0, 'B04 shadow status counts');
