@@ -74,14 +74,14 @@ test('duplicate keeps kind and stealth; AXON tabs cannot be duplicated; closeOth
   const { adapter, log, state } = fakeAdapter();
   state.tabs = [
     { index: 0, url: 'https://a.test/', title: '', groupId: null, kind: 'normal', stealth: false },
-    { index: 1, url: 'https://b.test/', title: '', groupId: null, kind: 'incognito', stealth: true },
+    { index: 1, url: 'https://b.test/', title: '', groupId: null, kind: 'normal', stealth: true },
     { index: 2, url: 'https://c.test/', title: '', groupId: null, kind: 'normal', stealth: false, pinned: true },
     { index: 3, url: 'https://d.test/', title: '', groupId: null, kind: 'incognito', stealth: false, axon: true },
     { index: 4, url: 'https://e.test/', title: '', groupId: null, kind: 'normal', stealth: false },
   ];
   const tail = new BrowserLongTail(adapter, new FakeNative());
   await tail.run('tabs.duplicate', { index: 1 });
-  assert.equal(log.at(-1), 'newTab:' + JSON.stringify({ url: 'https://b.test/', kind: 'incognito', stealth: true }));
+  assert.equal(log.at(-1), 'newTab:' + JSON.stringify({ url: 'https://b.test/', kind: 'normal', stealth: true }));
   await assert.rejects(() => tail.run('tabs.duplicate', { index: 3 }), /AXON/);
   await assert.rejects(() => tail.run('tabs.duplicate', { index: 99 }));
   const result = await tail.run('tabs.closeOthers', { index: 0 });

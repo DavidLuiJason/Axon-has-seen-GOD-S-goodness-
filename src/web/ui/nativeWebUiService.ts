@@ -21,6 +21,8 @@ const ACTIVITY_START_DELAY_MS = 50;
 export class NativeWebUiService extends MockWebUiService {
   private readonly plugin: AxonBrowserPlugin;
   private nativeActivityOpen = false;
+  /** Index of the Activity's own first normal tab, set only right after THIS service started the Activity. */
+  private bootstrapIndex: number | null = null;
   /** Maps this service's stable local tab IDs to the native Activity's current tab indexes. */
   private readonly nativeIndexes = new Map<string, number>();
 
@@ -55,6 +57,7 @@ export class NativeWebUiService extends MockWebUiService {
       try {
         const existing = await this.readNativeState();
         this.nativeActivityOpen = true;
+        this.bootstrapIndex = null;
         return { ok: true, state: existing };
       } catch {
         this.nativeActivityOpen = false;
@@ -65,6 +68,8 @@ export class NativeWebUiService extends MockWebUiService {
         return { ok: false, message: 'The native browser did not confirm that it opened the requested home URL.' };
       }
 
+      const createdNow = opened.activityCreated === true;
+
       // BrowserPlugin.open resolves after startActivity(), which can happen before onCreate()
       // has assigned BrowserActivity.instance. Wait for the actual plugin host before issuing
       // a subsequent native tab/control operation; do not race newTab() against Activity startup.
@@ -73,6 +78,10 @@ export class NativeWebUiService extends MockWebUiService {
         try {
           const state = await this.readNativeState();
           this.nativeActivityOpen = true;
+          // A freshly created Activity holds exactly one normal tab of its own (D204/R4 fix:
+          // adopt it for the first normal UI tab instead of creating a duplicate).
+          const only = state.tabs.length === 1 ? state.tabs[0] : null;
+          this.bootstrapIndex = createdNow && only && only.kind === 'normal' && only.stealth === false ? only.index : null;
           return { ok: true, state };
         } catch (error) {
           lastError = error;
@@ -181,12 +190,17 @@ export class NativeWebUiService extends MockWebUiService {
       const ensured = await this.ensureAndRead();
       if (!ensured.ok) return { ok: false, reason: 'failed', message: ensured.message };
 
-      const native = this.assertState(await this.plugin.newTab({ url: NATIVE_HOME, ...this.nativeKind(kind) }));
-      const nativeIndex = this.nativeTabIndex(native, kind);
+      const adopt = kind === 'normal' && this.bootstrapIndex !== null && ensured.state.tabs.length === 1;
+      const adoptedIndex = adopt ? this.bootstrapIndex : null;
+      this.bootstrapIndex = null;
+      const native = adoptedIndex !== null
+        ? ensured.state
+        : this.assertState(await this.plugin.newTab({ url: NATIVE_HOME, ...this.nativeKind(kind) }));
+      const nativeIndex = adoptedIndex !== null ? adoptedIndex : this.nativeTabIndex(native, kind);
       const local = await super.newTab(kind);
       if (!local.ok) {
-        // Roll back the native tab if the local model cannot accept it.
-        await this.plugin.closeTab({ index: nativeIndex });
+        // Roll back the native tab only if this call created it; an adopted bootstrap tab stays.
+        if (adoptedIndex === null) await this.plugin.closeTab({ index: nativeIndex });
         return local;
       }
       this.nativeIndexes.set(local.value.tabId, nativeIndex);

@@ -9,7 +9,7 @@ export class AndroidWebViewAdapter implements BrowserEngineAdapter {
   private readonly plugin: AxonBrowserPlugin;
   constructor(plugin: AxonBrowserPlugin = AxonBrowser) { this.plugin = plugin; }
   isAvailable(): boolean { return isNativeBrowserAvailable(); }
-  open(options?: { url?: string }) { return this.plugin.open(options); }
+  open(options?: { url?: string; kind?: 'normal' | 'incognito'; stealth?: boolean }) { return this.plugin.open(options); }
   navigate(options: { url: string }) { return this.plugin.navigate(options); }
   back() { return this.plugin.back(); }
   forward() { return this.plugin.forward(); }

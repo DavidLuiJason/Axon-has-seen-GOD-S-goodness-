@@ -158,11 +158,11 @@ test('close group closes only its member tabs', async () => {
   assert.deepEqual(state.groups, []);
 });
 
-test('controller forwards incognito and stealth identity options instead of refusing them as not built', async () => {
+test('controller forwards a separate stealth identity instead of refusing it as not built', async () => {
   const { native, run } = setup();
-  const result = await run('tabs.create', { kind: 'incognito', stealth: true });
+  const result = await run('tabs.create', { kind: 'normal', stealth: true });
   assert.equal(result.ok, true);
   const state = await native.getState();
-  assert.equal(state.tabs[3].kind, 'incognito');
+  assert.equal(state.tabs[3].kind, 'normal');
   assert.equal(state.tabs[3].stealth, true);
 });

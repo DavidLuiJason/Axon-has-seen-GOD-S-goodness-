@@ -16,17 +16,23 @@ import org.json.JSONObject;
 public final class BrowserPlugin extends Plugin {
     @PluginMethod public void open(PluginCall call) {
         String url = call.getString("url", "https://www.google.com");
+        String kind = call.getString("kind");
+        boolean stealth = call.getBoolean("stealth", false);
         BrowserActivity existing = BrowserActivity.getInstance();
         if (existing != null) {
-            existing.runOnUiThread(() -> { existing.navigate(url); JSObject out = new JSObject(); out.put("opened", true); out.put("url", url); call.resolve(out); });
+            existing.runOnUiThread(() -> { existing.navigate(url); JSObject out = new JSObject(); out.put("opened", true); out.put("url", url); out.put("activityCreated", false); call.resolve(out); });
             return;
         }
         Intent intent = new Intent(getContext(), BrowserActivity.class);
         intent.putExtra(BrowserActivity.EXTRA_URL, url);
+        if (kind != null) {
+            intent.putExtra(BrowserActivity.EXTRA_KIND, kind);
+            intent.putExtra(BrowserActivity.EXTRA_STEALTH, stealth);
+        }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             getContext().startActivity(intent);
-            JSObject out = new JSObject(); out.put("opened", true); out.put("url", url); call.resolve(out);
+            JSObject out = new JSObject(); out.put("opened", true); out.put("url", url); out.put("activityCreated", true); call.resolve(out);
         } catch (Exception e) { call.reject("AXON Web could not open: " + e.getMessage(), e); }
     }
     @PluginMethod public void navigate(PluginCall call) { String url=call.getString("url"); if(url==null||url.trim().isEmpty()){call.reject("url is required");return;} BrowserActivity a=BrowserActivity.getInstance(); if(a==null){call.reject("AXON Web is not open; call open() first");return;} a.runOnUiThread(()->{a.navigate(url);call.resolve(js(a.getState()));}); }

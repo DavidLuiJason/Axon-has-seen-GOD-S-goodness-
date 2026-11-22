@@ -52,7 +52,9 @@ function makePlugin(options = {}) {
       if (options.openResult) return options.openResult;
       if (options.openError) throw new Error(options.openError);
       state.available = true;
+      let activityCreated = false;
       if (state.tabs.length === 0) {
+        activityCreated = true;
         state.tabs.push({ index: 0, url, title: 'Home', groupId: null, kind: 'normal', stealth: false });
         state.activeIndex = 0;
       } else if (url) {
@@ -60,7 +62,7 @@ function makePlugin(options = {}) {
       }
       state.tabCount = state.tabs.length;
       state.url = active()?.url ?? '';
-      return { opened: true, url };
+      return { opened: true, url, activityCreated };
     },
     async newTab({ url = 'https://www.google.com', kind = 'normal', stealth = false } = {}) {
       calls.push(['newTab', { url, kind, stealth }]);
@@ -122,8 +124,29 @@ describe('NativeWebUiService uses the production adapter', () => {
     const searched = await service.search('example.com/path');
     assert.equal(searched.ok, true);
     assert.ok(plugin.calls.some(([name, url]) => name === 'navigate' && url === 'https://example.com/path'));
-    assert.equal(plugin.calls.filter(([name]) => name === 'newTab').length, 1);
+    // D204/R4: the fresh Activity's own first tab is adopted, no duplicate native tab.
+    assert.equal(plugin.calls.filter(([name]) => name === 'newTab').length, 0);
+    assert.equal(plugin.state.tabs.length, 1);
     assert.equal(service.getState().tabs.find((tab) => tab.id === service.getState().activeTabId)?.url, 'https://example.com/path');
+  });
+
+  it('creates a genuinely new native tab when the Activity already existed', async () => {
+    const plugin = makePlugin();
+    const first = new NativeWebUiService(plugin);
+    assert.equal((await first.newTab('normal')).ok, true);
+    const second = new NativeWebUiService(plugin);
+    assert.equal((await second.newTab('normal')).ok, true);
+    assert.equal(plugin.calls.filter(([name]) => name === 'newTab').length, 1);
+    assert.equal(plugin.state.tabs.length, 2);
+  });
+
+  it('does not adopt the bootstrap tab for a private first tab (stealth stays normal+stealth)', async () => {
+    const plugin = makePlugin();
+    const service = new NativeWebUiService(plugin);
+    assert.equal((await service.newTab('stealth')).ok, true);
+    const call = plugin.calls.find(([name]) => name === 'newTab');
+    assert.deepEqual(call[1].kind, 'normal');
+    assert.equal(call[1].stealth, true);
   });
 
   it('waits for BrowserActivity readiness after startActivity returns', async () => {
@@ -169,9 +192,9 @@ describe('NativeWebUiService uses the production adapter', () => {
     assert.equal(first.ok && second.ok, true);
     if (!first.ok || !second.ok) return;
     assert.equal((await service.switchTab(first.value.tabId)).ok, true);
-    assert.ok(plugin.calls.some(([name, index]) => name === 'switchTab' && index === 1));
+    assert.ok(plugin.calls.some(([name, index]) => name === 'switchTab' && index === 0));
     assert.equal((await service.closeTab(second.value.tabId)).ok, true);
-    assert.ok(plugin.calls.some(([name, index]) => name === 'closeTab' && index === 2));
+    assert.ok(plugin.calls.some(([name, index]) => name === 'closeTab' && index === 1));
     assert.equal(service.getState().tabs.some((tab) => tab.id === second.value.tabId), false);
   });
 

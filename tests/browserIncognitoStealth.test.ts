@@ -37,19 +37,27 @@ test('new-tab command is owner-confirmed because it can create incognito or stea
   assert.equal(decision.ok && decision.value.decision, 'ASK_OWNER');
 });
 
-test('controller forwards all normal/incognito plus stealth combinations to the engine', async () => {
+test('controller forwards the three valid normal/incognito/stealth modes to the engine', async () => {
   const { adapter, controller } = makeController();
   const cases = [
     { kind: 'normal', stealth: false },
     { kind: 'normal', stealth: true },
     { kind: 'incognito', stealth: false },
-    { kind: 'incognito', stealth: true },
   ] as const;
   for (const options of cases) {
     const result = await controller.execute({ functionId: 'tabs.create', actor: 'OWNER', sessionId: 'owner', args: options });
     assert.equal(result.ok, true);
   }
   assert.deepEqual(adapter.calls.filter((call): call is unknown[] => Array.isArray(call) && call[0] === 'newTab').map((call) => { const options = call[1] as Record<string, unknown>; return { kind: options.kind, stealth: options.stealth }; }), cases);
+});
+
+
+test('controller rejects the invalid combined incognito-plus-stealth mode', async () => {
+  const { adapter, controller } = makeController();
+  const result = await controller.execute({ functionId: 'tabs.create', actor: 'OWNER', sessionId: 'owner', args: { kind: 'incognito', stealth: true } });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /separate modes/i);
+  assert.equal(adapter.calls.length, 0);
 });
 
 test('default mode is readable and changing it is an owner-confirmed command', async () => {

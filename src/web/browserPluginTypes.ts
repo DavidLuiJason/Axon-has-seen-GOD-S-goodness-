@@ -23,7 +23,7 @@ export type BrowserDownloadItem = Readonly<{ id: string; title: string; status: 
 export type BrowserSecurityDetails = Readonly<{ url: string; scheme: string; host: string; certificatePresent: boolean; subject: string; issuer: string }>;
 export type BrowserSitePermissionSummary = Readonly<{ origin: string; summary: string; permissions: ReadonlyArray<{ name: string; state: 'BLOCKED' }> }>;
 export interface AxonBrowserPlugin {
-  open(options?: { url?: string }): Promise<{ opened: boolean; url: string }>;
+  open(options?: { url?: string; kind?: BrowserTabKind; stealth?: boolean }): Promise<{ opened: boolean; url: string; activityCreated: boolean }>;
   navigate(options: { url: string }): Promise<NativeBrowserState>;
   back(): Promise<NativeBrowserState>;
   forward(): Promise<NativeBrowserState>;

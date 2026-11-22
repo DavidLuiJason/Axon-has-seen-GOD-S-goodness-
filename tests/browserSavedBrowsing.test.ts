@@ -7,7 +7,7 @@ const calls: Array<[string, unknown[]]> = [];
 const state = { tabs: [{ index: 0, url: 'https://example.test', title: 'Example', groupId: null, kind: 'normal' as const, stealth: false }], groups: [], available: true, tabCount: 1, activeIndex: 0, url: 'https://example.test', title: 'Example', loading: false, canGoBack: false, canGoForward: false, engine: 'simulated', incognito: false, defaultMode: 'normal' as const };
 const adapter = {
   engineId: 'simulated' as const, isAvailable: () => true,
-  open: async (...args: unknown[]) => { calls.push(['open', args]); return { opened: true, url: 'https://example.test' }; },
+  open: async (...args: unknown[]) => { calls.push(['open', args]); return { opened: true, url: 'https://example.test', activityCreated: false }; },
   navigate: async (...args: unknown[]) => { calls.push(['navigate', args]); return state; },
   back: async (...args: unknown[]) => { calls.push(['back', args]); return state; }, forward: async (...args: unknown[]) => { calls.push(['forward', args]); return state; },
   reload: async (...args: unknown[]) => { calls.push(['reload', args]); return state; }, stop: async (...args: unknown[]) => { calls.push(['stop', args]); return state; },
