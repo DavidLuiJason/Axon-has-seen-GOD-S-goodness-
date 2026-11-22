@@ -13,6 +13,7 @@ import { reflect } from '../reflect/reflect.ts';
 import type { Candidate, Reflection, StepRecord } from '../reflect/reflect.ts';
 import { judgeProposal } from '../judgment/judge.ts';
 import { buildSituation } from './situation.ts';
+import { NOT_CONVENED, needsCouncil, plainCouncilNote } from './councilGate.ts';
 import type { Judgment } from '../judgment/judge.ts';
 import { clearPending, emptyDialogue, recordTurn, setPending } from '../dialogue/dialogueState.ts';
 import { livePending, readAnswer } from '../dialogue/dialogueAnswer.ts';
@@ -53,7 +54,7 @@ export type Orchestration = {
   readonly replyChanged: boolean;
   readonly problems: readonly string[];
 };
-export type OrchestratorOptions = { readonly mode?: OrchestratorMode; readonly memoryAllowed?: boolean };
+export type OrchestratorOptions = { readonly mode?: OrchestratorMode; readonly memoryAllowed?: boolean; /** JOB 5: the council's judge; tests replace it to prove a failing council never touches the answer. */ readonly judge?: typeof judgeProposal };
 type Out = { readonly reply: ReplyLike; readonly trace: unknown };
 
 const ASSUMPTION = 'an independent recheck of the quoted text agrees with the tool';
@@ -61,9 +62,10 @@ const ASSUMPTION = 'an independent recheck of the quoted text agrees with the to
 export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, options: OrchestratorOptions = {}) {
   const mode: OrchestratorMode = options.mode ?? 'shadow';
   const memoryAllowed = options.memoryAllowed === true;
+  const judge = options.judge ?? judgeProposal;
   const store = createCandidateStore();
   const journal = createPredictionJournal();
-  const counts = { messages: 0, repaired: 0, repairAsk: 0, dialogueAsked: 0, dialogueFilled: 0, dialogueCancelled: 0, rechecked: 0, recheckPassed: 0, recheckFailed: 0, recheckUnclear: 0, replyChanged: 0, wouldChange: 0, problems: 0 };
+  const counts = { messages: 0, repaired: 0, repairAsk: 0, dialogueAsked: 0, dialogueFilled: 0, dialogueCancelled: 0, rechecked: 0, recheckPassed: 0, recheckFailed: 0, recheckUnclear: 0, replyChanged: 0, wouldChange: 0, problems: 0, councilConvened: 0, councilSkipped: 0, councilFailed: 0, councilNotes: 0 };
   let dialogue = emptyDialogue();
   let pendingOriginal: string | null = null;
   // JOB 3: a repair that asked "Did you mean ...?" keeps both readings until the owner says yes, no or cancel, moves on, or the question expires.
@@ -206,13 +208,25 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
       {
         const evidence = verification ? verification.report.clauses[0].evidence : ('UNKNOWN' as const);
         const sit = buildSituation({ id: brainReply.taskId ?? 'turn-' + turn, toolId, repairVerdict: repair ? repair.verdict : 'NONE', evidence, missingInputs: [] });
-        const j = judgeProposal(sit.proposal);
-        if (j.ok) { judgment = j.value; judgmentBasis = sit.basis; } else problems.push('judgment refused: ' + j.error);
+        // JOB 5: the council sits only when the situation needs it; a failure of the council never touches the answer.
+        if (!needsCouncil(sit.proposal)) { judgment = NOT_CONVENED; judgmentBasis = sit.basis; counts.councilSkipped++; }
+        else {
+          try {
+            counts.councilConvened++;
+            const j = judge(sit.proposal);
+            if (j.ok) { judgment = j.value; judgmentBasis = sit.basis; } else { counts.councilFailed++; problems.push('judgment refused: ' + j.error); }
+          } catch { counts.councilFailed++; problems.push('council failed'); }
+        }
       }
     }
     if (mode === 'on' && verification && verification.report.overall === 'FAILED' && rawContent.includes('COMPLETED')) {
       reply = { content: 'I ran ' + toolId + ', but my own re-check did not match its answer, so I am not giving you that result. Nothing was changed.', source: 'orchestrator:verify', ...(brainReply.taskId ? { taskId: brainReply.taskId } : {}) };
       replyChanged = true;
+    }
+    // JOB 5: the council's decision reaches the owner in plain words (never the raw object), only when it is not a plain PROCEED. The tool has already run, so the answer is not removed.
+    if (mode === 'on' && judgment !== null && judgment.verdict !== 'PROCEED' && reply === brainReply) {
+      const note = plainCouncilNote(judgment, toolId);
+      if (note !== null) { reply = { ...reply, content: reply.content + '\n\nCouncil note: ' + note }; replyChanged = true; counts.councilNotes++; }
     }
 
     if (!checked && rawContent.includes('COMPLETED in')) problems.push('a reply says a task ran, but no tool lane or counting handler produced it');

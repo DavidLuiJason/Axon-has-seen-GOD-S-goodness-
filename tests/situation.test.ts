@@ -8,7 +8,6 @@ import { withOrchestrator } from '../src/brain/orchestratedBrain';
 import { buildSituation } from '../src/brain/mind/orchestrator/situation';
 import { judgeProposal } from '../src/brain/mind/judgment/judge';
 import { listSchemas, getSchema } from '../src/brain/mind/schema/actionSchemas';
-import { withOrchestrator } from '../src/brain/orchestratedBrain';
 import { resetAxonDialogue, sendQueryToAxonBoundary as say } from '../src/services/axonBrainInterface';
 import { Dictionary } from '../src/brain/dictionary';
 import { createDictionarySlot } from '../src/brain/knowledge/dictionarySlot';

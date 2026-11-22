@@ -12,7 +12,7 @@ export const LOAN_ACTION: ActionDef = {
   inputFields: [
     { name: 'amount', type: 'number', required: true, prompt: 'How much is the loan?' },
     { name: 'yearlyRate', type: 'number', required: true, prompt: 'What is the yearly interest rate in percent?' },
-    { name: 'term', type: 'number', required: true, prompt: 'How long is the loan, in milliseconds?' },
+    { name: 'term', type: 'number', required: true, prompt: 'How long is the loan, in years?' },
     { name: 'extraPayment', type: 'number', required: false, prompt: 'Is there an extra monthly payment?' },
   ],
   outputFields: [{ name: 'reply', type: 'string' }],

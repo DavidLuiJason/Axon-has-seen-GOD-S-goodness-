@@ -13,7 +13,8 @@ check(schemas.length > 0, 'the real schema list is not empty');
 const APPROVAL = ['sends', 'spends', 'deletes'];
 const PURE = ['shows-result', 'reads-file', 'uses-camera', 'uses-microphone', 'uses-network'];
 // 1. The undo x effects table: a row kind the feed was not designed for fails loudly so the Director reviews the mapping.
-const KNOWN = ['not-needed x pure', 'by-removal x persistent', 'by-tool x persistent', 'by-tool x approval'];
+// D111 review (2026-11-22): 'irreversible x persistent' (auto-clicker: changes a setting, owner approval, cannot be undone) is the strictest row; the loop below proves it is never acted on silently.
+const KNOWN = ['not-needed x pure', 'by-removal x persistent', 'by-tool x persistent', 'by-tool x approval', 'irreversible x persistent'];
 for (const s of schemas) {
   const kind = s.undo + ' x ' + (s.effects.some((e) => APPROVAL.includes(e)) ? 'approval' : s.effects.every((e) => PURE.includes(e)) ? 'pure' : 'persistent');
   check(KNOWN.includes(kind), 'new schema row kind needs a Director review: ' + s.tool + ' is ' + kind);
