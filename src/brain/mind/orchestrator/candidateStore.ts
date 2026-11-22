@@ -30,7 +30,8 @@ export function createCandidateStore() {
     },
     list(): readonly Candidate[] { return items.map((c) => ({ ...c })); },
     size(): number { return items.length; },
-    exportText(): string { return JSON.stringify({ version: 1, items }); },
+    /** Saved text. `keep` (optional) leaves some candidates out of the SAVED copy only; the store itself is unchanged. */
+    exportText(keep?: (c: Candidate) => boolean): string { return JSON.stringify({ version: 1, items: keep ? items.filter(keep) : items }); },
     /** Replaces the store with saved text. Anything invalid is refused as a whole and the store stays as it was. */
     importText(text: string): boolean {
       let data: unknown;

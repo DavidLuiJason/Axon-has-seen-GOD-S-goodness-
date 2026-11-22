@@ -111,7 +111,7 @@ let sharedOrchestrated: OrchestratedBrain | null = null;
 function buildSharedBrain(slot?: KnowledgeSlot): void {
   const mind = createAxonBrain({ lane: true, ...(slot ? { slot } : {}) });
   try {
-    sharedOrchestrated = withOrchestrator(mind, { mode: ORCHESTRATOR_MODE });
+    sharedOrchestrated = withOrchestrator(mind, { mode: ORCHESTRATOR_MODE, storage: phoneStorage() });
     shared = sharedOrchestrated;
   } catch {
     sharedOrchestrated = null;

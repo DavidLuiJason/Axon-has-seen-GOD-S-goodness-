@@ -17,12 +17,17 @@
 import type { BrainReply, BrainRequest } from './types';
 import type { Mind } from './mind';
 import { createOrchestrator } from './mind/orchestrator/orchestrator';
+import type { TextStorage } from './mind/orchestrator/candidateStore';
+import type { Candidate } from './mind/reflect/reflect';
 import type { Orchestration, OrchestratorMode, ReplyLike } from './mind/orchestrator/orchestrator';
 
 type Out = { reply: BrainReply; trace: Awaited<ReturnType<Mind['askWithTrace']>>['trace'] };
 type OrchestratorLike = {
   ask(request: { text: string; place: string }): Promise<{ reply: ReplyLike; trace: unknown; orchestration: Orchestration }>;
   stats(): Record<string, unknown>;
+  saveTo?(storage: TextStorage): boolean;
+  loadFrom?(storage: TextStorage): unknown;
+  candidates?(): readonly Candidate[];
   resetDialogue(): void;
 };
 type BrainLike = { askWithTrace(request: { text: string; place: string }): Promise<{ reply: ReplyLike; trace: unknown }> };
@@ -33,6 +38,8 @@ export type OrchestratedOptions = {
   readonly settleMs?: number;
   /** How many recent orchestrations are kept in memory. */
   readonly keep?: number;
+  /** JOB 8: where learned CANDIDATES and the prediction journal are kept between app runs (the phone's storage). Without it nothing is kept. Candidates are never trusted knowledge. */
+  readonly storage?: TextStorage | null;
   /** Test hook: build the orchestrator yourself. */
   readonly create?: (brain: BrainLike) => OrchestratorLike;
 };
@@ -56,6 +63,8 @@ export type OrchestratorStatus = {
 export type OrchestratedBrain = Mind & {
   orchestratorStatus(): OrchestratorStatus;
   recentOrchestrations(): readonly Orchestration[];
+  /** JOB 8: what reflection proposed to learn, as CANDIDATES only (stage CANDIDATE, never trusted). */
+  learnedCandidates(): readonly Candidate[];
 };
 
 const TIMED_OUT = Symbol('timed-out');
@@ -91,6 +100,22 @@ export function withOrchestrator(mind: Mind, options: OrchestratedOptions): Orch
     }
   }
 
+  // JOB 8: restore what was learned on an earlier run, and keep it after every message that changed it. Storage trouble never touches chat:
+  // a failed read restores nothing, a failed write is retried at the next message, and saved text that is not valid is refused whole by the store.
+  const kept = options.storage ?? null;
+  const written = new Map<string, string>();
+  const guarded: TextStorage | null = kept === null ? null : {
+    getItem: (key) => { const v = kept.getItem(key); if (v !== null) written.set(key, v); return v; },
+    setItem: (key, value) => { if (written.get(key) === value) return; kept.setItem(key, value); written.set(key, value); },
+  };
+  if (orchestrator !== null && guarded !== null && orchestrator.loadFrom) {
+    try { orchestrator.loadFrom(guarded); } catch { tally.failures++; }
+  }
+  const persist = (): void => {
+    if (orchestrator === null || guarded === null || !orchestrator.saveTo) return;
+    try { orchestrator.saveTo(guarded); } catch { /* keeping what was learned is a convenience; the chat must keep working */ }
+  };
+
   const status = (): OrchestratorStatus => {
     let stats: Record<string, unknown> | null = null;
     try { stats = orchestrator ? orchestrator.stats() : null; } catch { stats = null; }
@@ -124,6 +149,7 @@ export function withOrchestrator(mind: Mind, options: OrchestratedOptions): Orch
     }
     const { reply, trace, orchestration: seen } = result.value;
     recent.push(seen);
+    persist();
     while (recent.length > keep) recent.shift();
     if (mode === 'shadow' && base !== null) return base;
     if (mode === 'shadow') { tally.failures++; tally.fallbacks++; return (await mind.askWithTrace(request)) as Out; }
@@ -156,5 +182,6 @@ export function withOrchestrator(mind: Mind, options: OrchestratedOptions): Orch
     dialogueSnapshot: () => mind.dialogueSnapshot(),
     orchestratorStatus: status,
     recentOrchestrations: () => [...recent],
+    learnedCandidates: () => { try { return orchestrator?.candidates ? [...orchestrator.candidates()] : []; } catch { return []; } },
   };
 }

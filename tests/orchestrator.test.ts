@@ -238,7 +238,8 @@ const ask = async (mode: 'off' | 'shadow' | 'on' | undefined, reply: ReplyLike |
   st.foresee(ninety);
   check(st.saveTo(storage) === true && store.size === 2 && st.candidates().length > 0, 'F14_save_candidates_and_predictions');
   const back = createOrchestrator(fake(GOOD).brain, { mode: 'shadow' });
-  check(same(back.loadFrom(storage), { candidates: true, predictions: true }) && same(back.candidates(), st.candidates()) && back.noteOutcome('prediction-1', true) === true, 'F15_load_restores_both');
+  check(same(back.loadFrom(storage), { candidates: true, predictions: true }) && same(back.candidates(), st.candidates().filter((c) => c.kind !== 'LESSON')) && back.noteOutcome('prediction-1', true) === true, 'F15_load_restores_both (JOB 8, D84: a LESSON quotes the owner\'s words and is not saved unless memory is allowed)');
+  check(st.candidates().some((c) => c.kind === 'LESSON') && !(store.get('axon.brain.candidates') ?? '').includes('LESSON'), 'F15b_saved_copy_has_no_lessons_without_memory');
   check(same(createOrchestrator(fake(GOOD).brain).loadFrom({ getItem: () => null, setItem: () => undefined }), { candidates: false, predictions: false }), 'F16_nothing_saved_loads_nothing');
   check(st.saveTo({ getItem: () => null, setItem: () => { throw new Error('full'); } }) === false, 'F17_a_full_storage_is_reported');
   check(same(createOrchestrator(fake(GOOD).brain).loadFrom({ getItem: () => 'garbage', setItem: () => undefined }), { candidates: false, predictions: false }), 'F18_garbage_is_refused');

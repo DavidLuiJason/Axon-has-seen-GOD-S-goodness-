@@ -36,7 +36,7 @@ const src = walk('src').map((p) => p.split('\\').join('/'));
 const buildsOne = src.filter((p) => readFileSync(p, 'utf8').includes('createOrchestrator(') && !p.startsWith('src/brain/mind/orchestrator/'));
 check(buildsOne.length === 1 && buildsOne[0] === 'src/brain/orchestratedBrain.ts', 'A02 exactly one place in src builds an orchestrator: ' + buildsOne.join(','));
 const indexText = readFileSync('src/brain/index.ts', 'utf8');
-check(indexText.includes('withOrchestrator(mind, { mode: ORCHESTRATOR_MODE })'), 'A03 getAxonBrain wraps the Mind with the pinned mode');
+check(indexText.includes('withOrchestrator(mind, { mode: ORCHESTRATOR_MODE, storage: phoneStorage() })'), 'A03 getAxonBrain wraps the Mind with the pinned mode (and, since Job 8, the phone storage that keeps learned candidates)');
 check(readFileSync('src/services/axonBrainInterface.ts', 'utf8').includes('getAxonBrain().ask('), 'A04 the chat boundary still asks getAxonBrain (one door)');
 check(!indexText.includes("mode: 'on'") && !indexText.includes("mode: 'shadow'"), 'A05 index.ts never hard-codes a mode: the one pin decides');
 
