@@ -12,6 +12,7 @@ import type { VerifyReport } from '../verify/verify.ts';
 import { reflect } from '../reflect/reflect.ts';
 import type { Candidate, Reflection, StepRecord } from '../reflect/reflect.ts';
 import { judgeProposal } from '../judgment/judge.ts';
+import { buildSituation } from './situation.ts';
 import type { Judgment } from '../judgment/judge.ts';
 import { clearPending, emptyDialogue, recordTurn, setPending } from '../dialogue/dialogueState.ts';
 import { livePending, readAnswer } from '../dialogue/dialogueAnswer.ts';
@@ -46,6 +47,8 @@ export type Orchestration = {
   readonly dialogue: { readonly action: DialogueAction };
   readonly verification: { readonly toolId: string; readonly report: VerifyReport; readonly note: string } | null;
   readonly judgment: Judgment | null;
+  /** JOB 2 (D926): where each field of the judged situation came from (schema, repair, recheck). */
+  readonly judgmentBasis?: readonly string[];
   readonly reflection: Reflection | null;
   readonly replyChanged: boolean;
   readonly problems: readonly string[];
@@ -187,6 +190,7 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     const toolId = isTool ? brainReply.source.slice('runner:'.length) : oldCount ? 'text-counter' : '';
     let verification: Orchestration['verification'] = null;
     let judgment: Judgment | null = null;
+    let judgmentBasis: readonly string[] = [];
     if (checked) {
       try {
         const v = oldCount ? verifyOldCountReply({ message: effectiveText, replyContent: rawContent }) : await verifyToolReplyFull({ toolId, message: effectiveText, replyContent: rawContent });
@@ -198,10 +202,12 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
         const r = verifyOutcome(input);
         if (r.ok) verification = { toolId, report: r.value, note: v.note }; else problems.push('verification refused: ' + r.error);
       } catch { problems.push('verification failed'); }
-      if (verification) {
-        // These tools only read text the owner supplied, so the proposal is a harmless READ; the real permission decision stays with the lane.
-        const j = judgeProposal({ id: brainReply.taskId ?? 'turn-' + turn, actionKind: 'READ', reversible: true, affectsOthers: false, interpretation: 'HIGH', evidence: verification.report.clauses[0].evidence, permission: 'ALLOW', departsFromStatedGoal: false, missingInputs: [], undefinedTerms: [], dependenciesMet: true, costOfDoingNothing: 'NONE' });
-        if (j.ok) judgment = j.value; else problems.push('judgment refused: ' + j.error);
+      // JOB 2 (D926): the situation is BUILT from this turn (schema, repair verdict, recheck evidence), not written by hand.
+      {
+        const evidence = verification ? verification.report.clauses[0].evidence : ('UNKNOWN' as const);
+        const sit = buildSituation({ id: brainReply.taskId ?? 'turn-' + turn, toolId, repairVerdict: repair ? repair.verdict : 'NONE', evidence, missingInputs: [] });
+        const j = judgeProposal(sit.proposal);
+        if (j.ok) { judgment = j.value; judgmentBasis = sit.basis; } else problems.push('judgment refused: ' + j.error);
       }
     }
     if (mode === 'on' && verification && verification.report.overall === 'FAILED' && rawContent.includes('COMPLETED')) {
@@ -225,6 +231,7 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
 
     let outTrace = trace;
     if (verification) outTrace = withStageNote(outTrace, 'verification', 'orchestrator recheck of ' + toolId + ': ' + verification.report.overall + ' (' + verification.note + ')');
+    if (judgment) outTrace = withStageNote(outTrace, 'judgment', 'orchestrator judgment of ' + toolId + ': ' + judgment.verdict + ' (' + judgmentBasis.join('; ') + ')');
     if (action !== 'none') outTrace = withStageNote(outTrace, 'dialogue', 'orchestrator dialogue: ' + action);
     counts.messages++;
     if (repair && repair.verdict === 'REPAIRED') counts.repaired++;
@@ -235,7 +242,7 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     if (verification) { counts.rechecked++; if (verification.report.overall === 'PASSED') counts.recheckPassed++; else if (verification.report.overall === 'FAILED') counts.recheckFailed++; else counts.recheckUnclear++; }
     if (replyChanged) counts.replyChanged++;
     if (problems.length > 0) counts.problems++;
-    return { reply, trace: outTrace, orchestration: { mode, repair, effectiveText, dialogue: { action }, verification, judgment, reflection, replyChanged, problems } };
+    return { reply, trace: outTrace, orchestration: { mode, repair, effectiveText, dialogue: { action }, verification, judgment, ...(judgment ? { judgmentBasis } : {}), reflection, replyChanged, problems } };
   }
 
   type Foresight = { readonly ok: true; readonly judgment: SituationJudgment; readonly guidance: GuidanceRecord; readonly chanceShown: { low: number; high: number; widened: boolean } | null; readonly predictionId: string | null } | { readonly ok: false; readonly error: string; readonly message: string };
