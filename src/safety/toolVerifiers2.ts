@@ -1,7 +1,7 @@
 // P10b MORE PER-TOOL VERIFIERS (pure apart from the platform's own hashing). Adds checks for the hash tool, number to words and the case converter,
 // and keeps the earlier ones. Same rule as before: recompute by a second path from the owner's message and compare with the tool's reply;
 // anything that cannot be rechecked stays UNVERIFIED (check null) and is never blocked.
-import { quotedText, utf8Bytes, verifyToolReply } from './toolVerifiers.ts';
+import { quotedText, recount, utf8Bytes, verifyToolReply } from './toolVerifiers.ts';
 import type { ToolVerification } from './toolVerifiers.ts';
 
 const none = (note: string, output = ''): ToolVerification => ({ output, check: null, note });
@@ -202,4 +202,18 @@ export async function verifyToolReplyFull(input: { readonly toolId: string; read
     return input.toolId === 'hash-tool' ? verifyHash(q.text, input.replyContent) : verifyCase(q.text, input.replyContent);
   }
   return verifyToolReply(input);
+}
+
+/** JOB 4 tail (D926): the old text handler (source local-rules) answers counting requests. Recount from the quoted text; with no quote, recount the whole message (the user's answer to "What text should I count?"). A mismatch with no quote is UNCLEAR, never FAILED, because the handler may have counted a different text. */
+export function verifyOldCountReply(input: { readonly message: string; readonly replyContent: string }): ToolVerification {
+  const q = quotedText(input.message);
+  if (q.kind === 'one') return verifyToolReply({ toolId: 'text-counter', message: input.message, replyContent: input.replyContent });
+  if (q.kind === 'many' || q.kind === 'open') return none('the quotes are unclear, so the counted text cannot be told');
+  const w = /^Words: (\d+)$/m.exec(input.replyContent), c = /^Characters: (\d+) \((\d+) without spaces\)$/m.exec(input.replyContent), l = /^Letters: (\d+)$/m.exec(input.replyContent), n = /^Lines: (\d+)$/m.exec(input.replyContent);
+  if (!w || !c || !l || !n) return none('the reply does not show all four counts');
+  const r = recount(input.message);
+  const mine = `W=${r.words};C=${r.characters};NS=${r.noSpaces};L=${r.letters};LN=${r.lines}`;
+  const claimed = `W=${w[1]};C=${c[1]};NS=${c[2]};L=${l[1]};LN=${n[1]}`;
+  if (mine === claimed) return { output: claimed, check: { kind: 'RECOMPUTE', value: mine }, note: 'recounted from the whole message' };
+  return none('no quoted text, and the whole message does not match, so the counted text is unclear', claimed);
 }

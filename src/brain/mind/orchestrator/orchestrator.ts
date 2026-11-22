@@ -16,7 +16,7 @@ import type { Judgment } from '../judgment/judge.ts';
 import { clearPending, emptyDialogue, recordTurn, setPending } from '../dialogue/dialogueState.ts';
 import { livePending, readAnswer } from '../dialogue/dialogueAnswer.ts';
 import { stepDialogue } from '../dialogue/dialogueDriver.ts';
-import { verifyToolReplyFull } from '../../../safety/toolVerifiers2.ts';
+import { verifyOldCountReply, verifyToolReplyFull } from '../../../safety/toolVerifiers2.ts';
 import { createCandidateStore, loadText, saveText } from './candidateStore.ts';
 import type { TextStorage } from './candidateStore.ts';
 import { createPredictionJournal } from './predictionJournal.ts';
@@ -180,13 +180,16 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     // The brain's own answer is the one that is checked (any note put in front of it is stripped first).
     const brainReply = shown;
     const isTool = brainReply.source.startsWith('runner:');
-    const toolId = isTool ? brainReply.source.slice('runner:'.length) : '';
     const rawContent = stripNote(brainReply.content);
+    // JOB 4 tail (D926): the old text handler (local-rules) also answers counting requests; those answers are rechecked as the text counter.
+    const oldCount = !isTool && brainReply.source === 'local-rules' && rawContent.includes('Words: ') && rawContent.includes('Ran as task');
+    const checked = isTool || oldCount;
+    const toolId = isTool ? brainReply.source.slice('runner:'.length) : oldCount ? 'text-counter' : '';
     let verification: Orchestration['verification'] = null;
     let judgment: Judgment | null = null;
-    if (isTool) {
+    if (checked) {
       try {
-        const v = await verifyToolReplyFull({ toolId, message: effectiveText, replyContent: rawContent });
+        const v = oldCount ? verifyOldCountReply({ message: effectiveText, replyContent: rawContent }) : await verifyToolReplyFull({ toolId, message: effectiveText, replyContent: rawContent });
         const input = {
           clauses: [{ id: 'c1', required: true }],
           steps: [{ clauseId: 'c1', toolId, assumption: ASSUMPTION, reported: rawContent.includes('COMPLETED') ? ('success' as const) : ('failure' as const), output: v.output, check: v.check }],
@@ -206,17 +209,19 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
       replyChanged = true;
     }
 
+    if (!checked && rawContent.includes('COMPLETED in')) problems.push('a reply says a task ran, but no tool lane or counting handler produced it');
+
     let reflection: Reflection | null = null;
     try {
       const verified = verification !== null && verification.report.mayClaimSuccess;
-      const steps: StepRecord[] = isTool ? [{ toolId, ok: rawContent.includes('COMPLETED'), verified, assumption: ASSUMPTION }] : [];
+      const steps: StepRecord[] = checked ? [{ toolId, ok: rawContent.includes('COMPLETED'), verified, assumption: ASSUMPTION }] : [];
       const failedCheck = verification !== null && verification.report.overall === 'FAILED';
       const status = brainReply.source === 'foundation' ? 'ABANDONED' : isTool && !rawContent.includes('COMPLETED') ? 'FAILED' : 'SUCCESS';
       const r = reflect({ taskId: brainReply.taskId ?? 'turn-' + turn, goal: effectiveText.slice(0, 200) || 'empty request', status, steps, wrongAssumptions: failedCheck ? [ASSUMPTION] : [], ownerCorrections: [], memoryAllowed });
       if (r.ok) { reflection = r.value; store.add(r.value.candidates as readonly Candidate[]); } else problems.push('reflection refused: ' + r.error);
     } catch { problems.push('reflection failed'); }
 
-    dialogue = recordTurn(dialogue, { id: 'turn-' + turn, at: turn, text: effectiveText.slice(0, 500), tool: isTool ? toolId : null, outcome: action === 'asked' ? 'asked' : isTool ? 'answered' : 'none', args: {} });
+    dialogue = recordTurn(dialogue, { id: 'turn-' + turn, at: turn, text: effectiveText.slice(0, 500), tool: checked ? toolId : null, outcome: action === 'asked' ? 'asked' : checked ? 'answered' : 'none', args: {} });
 
     let outTrace = trace;
     if (verification) outTrace = withStageNote(outTrace, 'verification', 'orchestrator recheck of ' + toolId + ': ' + verification.report.overall + ' (' + verification.note + ')');

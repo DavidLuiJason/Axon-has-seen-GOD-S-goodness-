@@ -56,7 +56,14 @@ export function createMind(options: { providers: BrainProvider[]; fallback: Brai
     },
     askWithTrace,
     /** B05 D2a: a new chat or another chat starts with an empty dialogue (nothing is saved across chats). */
-    resetDialogue(): void { dialogueState = emptyDialogue(); },
+    resetDialogue(): void {
+      dialogueState = emptyDialogue();
+      // JOB 13 tail (D926): a provider that keeps its own pending question (the old text handler) must forget it too, or the next message is taken as the answer.
+      for (const provider of options.providers) {
+        const reset = (provider as { reset?: unknown }).reset;
+        if (typeof reset === 'function') { try { (reset as () => void).call(provider); } catch { /* a reset is a convenience; the chat must keep working */ } }
+      }
+    },
     /** B05 D2a: the current dialogue state (read only; for tests and the trace). */
     dialogueSnapshot(): DialogueState { return dialogueState; },
   };
