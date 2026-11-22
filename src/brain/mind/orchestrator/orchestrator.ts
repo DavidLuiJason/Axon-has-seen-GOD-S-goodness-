@@ -24,7 +24,7 @@ import { createCandidateStore, loadText, saveText } from './candidateStore.ts';
 import type { TextStorage } from './candidateStore.ts';
 import { createPredictionJournal } from './predictionJournal.ts';
 import { runPlan } from './planRunner.ts';
-import type { PlanRun } from './planRunner.ts';
+import type { PlanResume, PlanRun } from './planRunner.ts';
 import { validateSituation } from '../foresight/situation.ts';
 import { lookAhead } from '../foresight/lookahead.ts';
 import { judgeSituation } from '../foresight/verdict.ts';
@@ -66,12 +66,35 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
   const judge = options.judge ?? judgeProposal;
   const store = createCandidateStore();
   const journal = createPredictionJournal();
-  const counts = { messages: 0, repaired: 0, repairAsk: 0, dialogueAsked: 0, dialogueFilled: 0, dialogueCancelled: 0, rechecked: 0, recheckPassed: 0, recheckFailed: 0, recheckUnclear: 0, replyChanged: 0, wouldChange: 0, problems: 0, councilConvened: 0, councilSkipped: 0, councilFailed: 0, councilNotes: 0, stepsHeld: 0 };
+  const counts = { messages: 0, repaired: 0, repairAsk: 0, dialogueAsked: 0, dialogueFilled: 0, dialogueCancelled: 0, rechecked: 0, recheckPassed: 0, recheckFailed: 0, recheckUnclear: 0, replyChanged: 0, wouldChange: 0, problems: 0, councilConvened: 0, councilSkipped: 0, councilFailed: 0, councilNotes: 0, stepsHeld: 0, planAsked: 0, planApproved: 0, planDeclined: 0, planDropped: 0 };
   let dialogue = emptyDialogue();
   let pendingOriginal: string | null = null;
   // JOB 3: a repair that asked "Did you mean ...?" keeps both readings until the owner says yes, no or cancel, moves on, or the question expires.
   let pendingRepair: { readonly original: string; readonly reading: string } | null = null;
+  // JOB 6 (D926): a plan held on an ASK waits here for the owner's yes or no in chat. Only an ASK is kept; a STOP is final and nothing waits for it.
+  let heldPlan: { readonly goal: Goal; readonly plan: Plan; readonly toolId: string; readonly approved: readonly string[]; readonly resume: PlanResume } | null = null;
   let turn = 0;
+
+  /** JOB 6: runs a plan through the step gate; a step held on an ASK is remembered and its question becomes the open yes-no question. */
+  async function runGated(goal: Goal, plan: Plan, approvedTools: readonly string[], resume?: PlanResume): Promise<PlanRun> {
+    const run = await runPlan(goal, plan, async (text) => {
+      const r = await ask({ text, place: 'chat' });
+      return { verified: r.orchestration.verification !== null && r.orchestration.verification.report.mayClaimSuccess, source: r.reply.source };
+    }, makeStepGate(judge, { approvedTools, onHeld: () => { counts.stepsHeld++; }, onFailed: () => { counts.councilFailed++; } }), resume);
+    if (mode === 'on' && run.status === 'HELD' && run.verdict === 'ASK') {
+      heldPlan = { goal, plan, toolId: run.toolId, approved: approvedTools, resume: run.resume };
+      pendingRepair = null;
+      dialogue = setPending(dialogue, { kind: 'yes-no', question: run.question, slot: null, tool: null });
+      counts.planAsked++;
+    }
+    return run;
+  }
+  /** JOB 6: what the owner is told about a plan run that was carried on after approval. */
+  function planSay(run: PlanRun, toolId: string): string {
+    if (run.status === 'DONE') return 'Done. I ran ' + toolId + ' with your approval and the plan finished.';
+    if (run.status === 'BAD_STEP') return 'I could not carry on: a step had no request to send. Nothing more was run.';
+    return run.question;
+  }
 
   async function ask(request: { text: string; place: string }): Promise<{ reply: ReplyLike; trace: unknown; orchestration: Orchestration }> {
     turn++;
@@ -87,6 +110,40 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     let effectiveText = request.text;
     let repair: RepairResult | null = null;
     let replyChanged = false;
+
+    // 1b. JOB 6: a plan step is held and waiting for the owner. yes carries on from the held step (earlier steps never run twice),
+    //     no or cancel ends the plan without running it, anything else means the owner moved on: the plan is dropped, never run unasked.
+    if (mode === 'on' && heldPlan !== null) {
+      const held = heldPlan;
+      heldPlan = null;
+      const open = livePending(dialogue);
+      const answer = open !== null && open.kind === 'yes-no' ? readAnswer(dialogue, request.text) : null;
+      if (answer !== null && answer.kind === 'answers' && typeof answer.value === 'boolean') {
+        dialogue = clearPending(dialogue);
+        if (answer.value) {
+          counts.planApproved++;
+          const run = await runGated(held.goal, held.plan, [...held.approved, held.toolId], held.resume);
+          reply = { content: planSay(run, held.toolId), source: 'orchestrator:plan' };
+          action = 'filled';
+        } else {
+          counts.planDeclined++;
+          reply = { content: 'Understood. I did not run ' + held.toolId + '. Nothing was changed.', source: 'orchestrator:plan' };
+          action = 'cancelled';
+        }
+        trace = { entries: [{ stage: 'dialogue', state: 'ran', note: 'orchestrator dialogue: the owner answered the approval question for ' + held.toolId }] };
+        replyChanged = true;
+      } else if (answer !== null && answer.kind === 'cancels') {
+        dialogue = clearPending(dialogue);
+        counts.planDeclined++;
+        reply = { content: CANCEL_REPLY, source: 'orchestrator:plan' };
+        trace = { entries: [{ stage: 'dialogue', state: 'ran', note: 'orchestrator dialogue: the owner cancelled the approval question' }] };
+        action = 'cancelled';
+        replyChanged = true;
+      } else {
+        dialogue = clearPending(dialogue);
+        counts.planDropped++;
+      }
+    }
 
     // 1a. An open "Did you mean ...?" (yes-no): yes runs the repaired reading, no runs the owner's exact words, cancel drops it,
     //     anything else means the owner moved on: the question is dropped (never asked again) and the message is handled normally.
@@ -288,7 +345,7 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     ask,
     mode,
     /** JOB 1: a new or another chat starts with no open question (counts, candidates and the journal stay). */
-    resetDialogue: (): void => { dialogue = emptyDialogue(); pendingOriginal = null; pendingRepair = null; },
+    resetDialogue: (): void => { dialogue = emptyDialogue(); pendingOriginal = null; pendingRepair = null; heldPlan = null; },
     candidates: () => store.list(),
     exportCandidates: () => store.exportText(),
     importCandidates: (text: string) => store.importText(text),
@@ -297,10 +354,7 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     calibration,
     /** Runs a validated plan; each step's text goes through ask() and counts only when its answer was re-checked and passed. */
     /** JOB 7: each step is judged before it runs; `approvedTools` are tools the owner has said yes to for this plan (an ASK is then allowed; a STOP never is). */
-    runPlan: (goal: Goal, plan: Plan, approvedTools: readonly string[] = []): Promise<PlanRun> => runPlan(goal, plan, async (text) => {
-      const r = await ask({ text, place: 'chat' });
-      return { verified: r.orchestration.verification !== null && r.orchestration.verification.report.mayClaimSuccess, source: r.reply.source };
-    }, makeStepGate(judge, { approvedTools, onHeld: () => { counts.stepsHeld++; }, onFailed: () => { counts.councilFailed++; } })),
+    runPlan: (goal: Goal, plan: Plan, approvedTools: readonly string[] = []): Promise<PlanRun> => runGated(goal, plan, approvedTools),
     /** What the orchestrator has seen so far: the numbers that show whether it is safe to switch from shadow to on. */
     stats: () => ({ ...counts, mode }),
     saveTo: (storage: TextStorage): boolean => { const a = saveText(storage, KEY_CANDIDATES, store.exportText()); const b = saveText(storage, KEY_JOURNAL, journal.exportText()); return a && b; },
