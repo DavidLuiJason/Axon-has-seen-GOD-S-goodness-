@@ -330,7 +330,7 @@ for (let s = 0; s < 1500; s++) group('F fuzz sequence ' + s, 'generated', () => 
     else if (op === 4 && w.l.items.length > 0 && w.l.events.length > 1) { const it = pick(w.l.items); const c = pick(w.l.events); const src = w.l.events.find((e) => e.id === it.sourceEvent)!; const prot = it.kind === 'law' || it.kind === 'constraint';
       const d = descOf('adopt', it.id, it, it.sourceEvent, c.id); validAp = rnd(2) === 0; const a = prot ? (validAp ? approval(d) : rnd(2) === 0 ? null : approval(descOf('adopt', it.id, it, 'x', 'y'))) : null; touchedProtected = prot;
       const r = adopt(w.l, it.id, c.id, ctx, a); ok = r.ok; if (r.ok) w.l = r.ledger; void src; label = 'adopt'; }
-    else if (op === 5 && w.l.items.length > 0 && w.l.events.length > 1) { const old = pick(w.l.items); const e = pick(w.l.events); const c = pick(w.l.events); const intent = pick('replace correct override exception'.split(' ')) as 'replace';
+    else if (op === 5 && w.l.items.length > 0 && w.l.events.length > 1) { const old = pick(w.l.items); const e = pick(w.l.events); const c = pick(w.l.events); const intent = pick('replace correct override exception'.split(' ')) as 'replace' | 'correct' | 'override' | 'exception';
       const kind = rnd(4) === 0 ? 'law' : old.kind === 'exception' ? 'decision' : old.kind; const nk = intent === 'exception' ? 'exception' : kind;
       const nx = item(nk as ItemInput['kind'], old.subject, pick(VAL), intent === 'exception' ? 'chat' : old.scope, intent === 'exception' ? e.chat : old.scopeId, intent === 'exception' ? { condition: 'sometimes' } : {});
       const prot = old.kind === 'law' || old.kind === 'constraint' || nk === 'law' || nk === 'constraint'; validAp = rnd(2) === 0; touchedProtected = prot;

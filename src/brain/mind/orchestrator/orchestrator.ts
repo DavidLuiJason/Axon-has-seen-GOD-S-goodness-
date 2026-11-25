@@ -15,6 +15,8 @@ import { judgeProposal } from '../judgment/judge.ts';
 import { buildSituation } from './situation.ts';
 import { NOT_CONVENED, needsCouncil, plainCouncilNote } from './councilGate.ts';
 import { makeStepGate } from './stepGate.ts';
+import { tapCortex } from './cortexTap.ts';
+import type { CortexTap } from './cortexTap.ts';
 import type { Judgment } from '../judgment/judge.ts';
 import { clearPending, emptyDialogue, recordTurn, setPending } from '../dialogue/dialogueState.ts';
 import { livePending, readAnswer } from '../dialogue/dialogueAnswer.ts';
@@ -54,6 +56,8 @@ export type Orchestration = {
   /** JOB 2 (D926): where each field of the judged situation came from (schema, repair, recheck). */
   readonly judgmentBasis?: readonly string[];
   readonly reflection: Reflection | null;
+  /** CX-A4 (D84): what CORTEX would have decided from this turn's facts; recorded only, never changes the reply. */
+  readonly cortex?: CortexTap;
   readonly replyChanged: boolean;
   readonly problems: readonly string[];
 };
@@ -68,7 +72,7 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
   const judge = options.judge ?? judgeProposal;
   const store = createCandidateStore();
   const journal = createPredictionJournal();
-  const counts = { messages: 0, repaired: 0, repairAsk: 0, dialogueAsked: 0, dialogueFilled: 0, dialogueCancelled: 0, rechecked: 0, recheckPassed: 0, recheckFailed: 0, recheckUnclear: 0, replyChanged: 0, wouldChange: 0, problems: 0, councilConvened: 0, councilSkipped: 0, councilFailed: 0, councilNotes: 0, stepsHeld: 0, planAsked: 0, planApproved: 0, planDeclined: 0, planDropped: 0, outsideAsked: 0, outsideApproved: 0, outsideDeclined: 0, outsideDropped: 0 };
+  const counts = { messages: 0, repaired: 0, repairAsk: 0, dialogueAsked: 0, dialogueFilled: 0, dialogueCancelled: 0, rechecked: 0, recheckPassed: 0, recheckFailed: 0, recheckUnclear: 0, replyChanged: 0, wouldChange: 0, problems: 0, councilConvened: 0, councilSkipped: 0, councilFailed: 0, councilNotes: 0, stepsHeld: 0, planAsked: 0, planApproved: 0, planDeclined: 0, planDropped: 0, outsideAsked: 0, outsideApproved: 0, outsideDeclined: 0, outsideDropped: 0, cortexTapped: 0, cortexAgree: 0, cortexDisagree: 0, cortexFailed: 0 };
   let dialogue = emptyDialogue();
   let pendingOriginal: string | null = null;
   // JOB 3: a repair that asked "Did you mean ...?" keeps both readings until the owner says yes, no or cancel, moves on, or the question expires.
@@ -325,6 +329,13 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
       if (note !== null) { reply = { ...reply, content: reply.content + '\n\nCouncil note: ' + note }; replyChanged = true; counts.councilNotes++; }
     }
 
+    // CX-A4 (D84): shadow tap. CORTEX decides from the same typed facts; the result is recorded, the reply is never touched.
+    let cortex: CortexTap | undefined;
+    if (mode !== 'off' && (checked || action === 'asked' || action === 'would-ask')) {
+      const t = tapCortex({ turnId: brainReply.taskId ?? 'turn-' + turn, toolId, missingText: !checked, recheck: verification ? verification.report.overall : 'NONE', judgment });
+      if (t.ok) { cortex = t.value; counts.cortexTapped++; if (t.value.agrees) counts.cortexAgree++; else counts.cortexDisagree++; }
+      else { counts.cortexFailed++; problems.push('cortex tap refused: ' + t.error); }
+    }
     if (!checked && rawContent.includes('COMPLETED in')) problems.push('a reply says a task ran, but no tool lane or counting handler produced it');
 
     let reflection: Reflection | null = null;
@@ -352,7 +363,7 @@ export function createOrchestrator<T extends ReplyLike>(brain: BrainLike<T>, opt
     if (verification) { counts.rechecked++; if (verification.report.overall === 'PASSED') counts.recheckPassed++; else if (verification.report.overall === 'FAILED') counts.recheckFailed++; else counts.recheckUnclear++; }
     if (replyChanged) counts.replyChanged++;
     if (problems.length > 0) counts.problems++;
-    return { reply, trace: outTrace, orchestration: { mode, repair, effectiveText, dialogue: { action }, verification, judgment, ...(judgment ? { judgmentBasis } : {}), reflection, replyChanged, problems } };
+    return { reply, trace: outTrace, orchestration: { mode, repair, effectiveText, dialogue: { action }, verification, judgment, ...(judgment ? { judgmentBasis } : {}), reflection, ...(cortex ? { cortex } : {}), replyChanged, problems } };
   }
 
   type Foresight = { readonly ok: true; readonly judgment: SituationJudgment; readonly guidance: GuidanceRecord; readonly chanceShown: { low: number; high: number; widened: boolean } | null; readonly predictionId: string | null } | { readonly ok: false; readonly error: string; readonly message: string };

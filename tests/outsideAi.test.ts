@@ -77,7 +77,7 @@ const sender = (reply: string | (() => Promise<string>)) => {
 {
   const o = createOutsideAi({ registry: REG, secrets: [], send: sender('x').send });
   await o.ask(req('open', 'original'), false);
-  const copy = o.log() as { parts: { content: string }[] }[];
+  const copy = o.log() as unknown as { parts: { content: string }[] }[];
   copy[0]!.parts[0]!.content = 'tampered';
   check(o.log()[0]!.parts[0]!.content === 'original', 'O15 changing a copy of the log never changes the log');
 }

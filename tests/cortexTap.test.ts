@@ -1,0 +1,23 @@
+import { tapCortex } from '../src/brain/mind/orchestrator/cortexTap.ts';
+import { createOrchestrator } from '../src/brain/mind/orchestrator/orchestrator.ts';
+let n = 0;
+function check(ok: unknown, label: string): void { n++; if (!ok) throw new Error('FAIL: ' + label); }
+const base = { turnId: 't', judgment: null } as const;
+const a = tapCortex({ ...base, toolId: 'text-counter', missingText: false, recheck: 'PASSED' });
+check(a.ok && a.value.kind === 'RUN' && a.value.capabilityId === 'text-counter' && a.value.agrees, 'T1 a tool turn: CORTEX also runs that tool');
+const b = tapCortex({ ...base, toolId: 'case-converter', missingText: true, recheck: 'NONE' });
+check(b.ok && b.value.kind === 'ASK' && b.value.brainDid === 'ASK' && b.value.agrees, 'T2 a missing text: CORTEX also asks');
+const c = tapCortex({ ...base, toolId: 'hash-tool', missingText: false, recheck: 'FAILED' });
+check(c.ok && c.value.brainDid === 'RUN', 'T3 a failed recheck still produces a recorded decision');
+const tool = (id: string, text: string) => ({ reply: { content: text, source: 'runner:' + id }, trace: {} });
+const mk = (src: string, content: string) => createOrchestrator({ askWithTrace: async () => tool(src, content) } as never, { mode: 'shadow' });
+const o = mk('text-counter', 'Words: 2 Ran as task COMPLETED in 1 ms');
+const r = await o.ask({ text: 'count words in hello world', place: 'chat' });
+check(r.reply.content === 'Words: 2 Ran as task COMPLETED in 1 ms' && r.orchestration.cortex !== undefined && r.orchestration.cortex.kind === 'RUN', 'T4 shadow: reply unchanged, CORTEX decision recorded');
+const off = createOrchestrator({ askWithTrace: async () => tool('text-counter', 'x') } as never, { mode: 'off' });
+const q = await off.ask({ text: 'hi', place: 'chat' });
+check(q.orchestration.cortex === undefined, 'T5 mode off never taps CORTEX');
+const chat = createOrchestrator({ askWithTrace: async () => ({ reply: { content: 'Hello', source: 'local-rules' }, trace: {} }) } as never, { mode: 'shadow' });
+const h = await chat.ask({ text: 'hello', place: 'chat' });
+check(h.orchestration.cortex === undefined, 'T6 a turn with no tool is not tapped');
+console.log('cortexTap: ' + n + ' checks; 0 failed');
