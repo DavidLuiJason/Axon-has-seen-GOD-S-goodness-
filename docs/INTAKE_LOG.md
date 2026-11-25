@@ -105,3 +105,5 @@ Read only if a past file is unclear. Newest at the bottom. Columns: date, accoun
 2026-11-10 | new Director account intake, round 1 and 2: roadmap v21.3 and main zip (NOW.txt, MERGE_TAG.txt, DIRECTOR_NAP.txt, board tail, wiring files) read; owner confirmed the cloud build green and delegated the choice words | owner decisions recorded | AXON-DECISIONS-merge.zip made
 
 2026-11-11 | AXON_ROADMAP_V21_3.md (read in full; a second upload AXON_ROADMAP_V21_3_1.md is byte-identical), main zip (NOW.txt, MERGE_TAG.txt, the two failing tests, registries), owner paste of two cloud failures; AXON Web zip NOT opened (owner order) | roadmap, main zip, builder-less Director job | TEST-FIX2 verified; AXON-TESTFIX2-merge.zip made
+
+2026-11-25 | D0 | CORTEX-ALL-PARTS.zip (ChatGPT R1-R4) + prior account's pasted verification: reproduced, one generalisation fix, merged isolated.
