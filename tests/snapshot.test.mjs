@@ -23,6 +23,7 @@ try {
   put('public/dictionary/en/ATTRIBUTION.txt', 'Princeton\n');
   put('public/dictionary/en/core/a.json', '{"a":1}\n');
   put('dist/ignored.js', 'ignored');
+  put('.axon-held/old-zip/src/source.ts.held', 'old copy');
   for (const f of ['bun.lock', 'bun.lockb', 'yarn.lock', 'pnpm-lock.yaml', 'Thumbs.db']) put(f, 'tool-made');
   put('package-lock.json', '{"lockfileVersion":3}\n');
   put('stray-unknown.tool', 'unknown file');
@@ -33,6 +34,7 @@ try {
   ok(!manifest.files.some((f) => f.path === '.env.local' || f.path.startsWith('dist/')), 'secret and build output excluded');
   ok(!manifest.files.some((f) => ['bun.lock', 'bun.lockb', 'yarn.lock', 'pnpm-lock.yaml', 'Thumbs.db'].includes(f.path)), 'tool-made files left out');
   ok(manifest.files.some((f) => f.path === 'package-lock.json') && manifest.files.some((f) => f.path === 'stray-unknown.tool'), 'package-lock.json and unknown files still included');
+  ok(!manifest.files.some((f) => f.path.startsWith('.axon-held/')), 'held old copies left out');
   ok(run('compare-dirs.mjs', ['.', 'public/_axon-source/source.zip', '--ignore', 'public/dictionary/']).status === 0, 'Z1 binary-safe roundtrip');
   put('src/source.ts', 'export const message = "tampered";\n');
   ok(run('snapshot.mjs', ['--check']).status !== 0, 'changed source byte detected');
