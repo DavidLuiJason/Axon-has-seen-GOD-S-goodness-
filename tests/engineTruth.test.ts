@@ -53,6 +53,11 @@ function main(): void {
     'act.encoder-decoder': 'tests/liveBrainEncoderDecoder.test.ts',
     'act.hash-tool': 'tests/liveBrainHashTool.test.ts',
     'act.qr-maker': 'tests/liveBrainQrMaker.test.ts',
+    'act.password-generator': 'tests/liveBrainPassword.test.ts',
+    'act.loan-calculator': 'tests/liveBrainLoan.test.ts',
+    'act.converter': 'tests/liveBrainConverter.test.ts',
+    'act.text-compare': 'tests/liveBrainTextCompare.test.ts',
+    'act.find-replace': 'tests/liveBrainFindReplace.test.ts',
   };
   for (const { action } of actions) {
     if (action.status !== 'available') continue;

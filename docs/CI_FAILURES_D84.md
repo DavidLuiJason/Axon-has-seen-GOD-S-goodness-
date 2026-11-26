@@ -1,13 +1,12 @@
-# CI run #29 failures: who owns what (D84, 2026-11-25)
-CORTEX merge touched only new cortex files, package.json, NOW.txt, MERGE_TAG.txt, INTAKE_LOG. It cannot cause failures 3 to 9.
-FIXED BY D84 (in this zip):
-1. tests/commitments.test.ts TS2367 (4 errors): the intent was cast to the single word 'replace'; now cast to all four intents. My own test (CCCS). Test still 3,094 groups, 0 failed.
-2. tests/outsideAi.test.ts TS4104: copy of a readonly log; now cast through unknown. 28 checks, 0 failed.
-3. directorNap.test.ts: NOW.txt lost the words DIRECTOR_NAP.txt when the CORTEX merge rewrote it. Restored; test passes (7 checks).
-NOT D84's LANE (tools wave, D471 / whoever merged the Loan Calculator, Split and Tip and Password Generator screens). Measured here on the same repo:
-4. liveAdmission: tool loan-calculator is ON (catalog status available) but has no available chat action.
-5. capabilityTruth: kernel action finance.loan (src/tools/loanAction.ts) has no registry action linked to it.
-6. engineTruth: act.password-generator is marked available in registerAxonTools.ts but has no proof file in PROVEN_AVAILABLE.
-7. brainGolden: the "help" reply now lists more tools than tests/fixtures/brainGolden.json (follows from 4 to 6).
-Fix in that lane: either link the chat actions and add proof tests, or set those catalog entries back to coming-soon until they are proven; then regenerate the golden "help" line on purpose.
-8. autoclicker-native.test.mjs: strings.xml accessibility description no longer contains "red STOP button" (android-overlay; whoever edited it or the test).
+# CI failures after CORTEX (D84, 2026-11-25/26). Measured on the same repo; "ORIG" = the zip before my edits.
+FIXED in the D84 zip (each re-run green):
+1. commitments.test.ts + outsideAi.test.ts type errors (tsc).
+2. directorNap.test.ts: NOW.txt pointer restored.
+3. capabilityTruth + liveAdmission: registerAxonTools.ts now has act.loan-calculator (finance.loan, proof liveBrainLoan passes) and act.split-bill (finance.split). Both tools were switched ON with no registry action.
+4. brainGolden: the four ability-list messages (help, what can you do, What can you do?, what tools do you have?) now list the tools that are really available; regenerated on purpose, 79 messages pass. Nothing else in the fixture changed.
+5. engineTruth map: added password-generator, loan-calculator, converter, text-compare, find-replace, each pointing at a live proof that passes (6, 6, 6, 6, 20 checks).
+STILL RED, NOT FIXED, and why (all fail on the ORIG zip too; none touches CORTEX):
+A. liveBrainCalculator, liveBrainPercentage, liveBrainTextCleaner, liveBrainRandomPicker, liveBrainDateCalculator, liveBrainSplitBill: the chat does not understand the verbs. Misses: "compute", "increase/decrease/raise ... by N%", "clean up/tidy", "flip/toss a coin", "add N days to DATE / date difference", "split 90 between 3 people with a 10% tip". These tools are ON but their own proofs fail. Cause is verb coverage in the dictionary, which is the dictionary job (LEX2) in NOW.txt. Because of A, engineTruth still names act.random-picker (I did not list unproven tools as proven).
+B. Stale pinned counts, tools lane (D471): liveFacts (64 facts), liveSwitches (pinned ON list), tools (twelve groups), runnerRegistry (20 runners), wireGenerated (live tasks list). The tools work moved on and these pins were not updated.
+C. autoclicker-native.test.mjs: axon_accessibility_strings.xml was reworded and no longer says "red STOP button". It is the user-facing accessibility disclosure, so I did not edit it or loosen the test; the owner of the Android overlay decides which one is right.
+D. Android build #30: Maven Central answered 429 Too Many Requests while Gradle downloaded plugins. Not code. Re-run the build.
