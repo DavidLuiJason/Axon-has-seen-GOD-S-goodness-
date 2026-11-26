@@ -27,6 +27,8 @@ export interface CortexDependencies {
   readonly exactIntegerAdd?: (left: number, right: number) => CortexEngineResult<number>;
   /** D0: further exact two-operand engines, keyed by a typed concept ref in exactConceptKinds; each carries its own independent second path. */
   readonly exactBinaryOps?: Readonly<Record<string, ExactBinaryOp>>;
+  /** CX-A1..A3: optional input adapter; its output is validated again, so a bad adapter fails closed. */
+  readonly adapters?: { readonly apply: (value: CortexInput) => CortexInput };
 }
 
 export interface ExactBinaryOp {
@@ -266,7 +268,12 @@ export function createCortex(deps: CortexDependencies): { decide(input: unknown)
         }
         const built = buildCortexInput(raw);
         if (!built.ok) return fail(built.error, built.message);
-        const input = built.value;
+        let input = built.value;
+        if (deps.adapters !== undefined) {
+          const adapted = buildCortexInput(deps.adapters.apply(built.value));
+          if (!adapted.ok) return fail('bad-adapter-output', 'An input adapter returned a value that failed CORTEX input validation.');
+          input = adapted.value;
+        }
         const frameResult = buildObjectiveFrame(input);
         if (!frameResult.ok) return fail(frameResult.error, frameResult.message);
         const generated = generateOptions(input, { maxDepth: deps.maxOptionDepth });

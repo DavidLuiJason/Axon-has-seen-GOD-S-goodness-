@@ -228,5 +228,35 @@ else
   echo "    = launcher query already present"
 fi
 
+echo "==> Making Gradle resilient to Maven Central rate limits (HTTP 429, builds #30 and #32)"
+# The build failed while downloading build tools from Maven Central ("Received status code 429 ... Too Many Requests").
+# That is a rate limit on the shared CI address, not a code error. Two safe, idempotent measures (no new dependency):
+#  1. android/gradle.properties: let Gradle retry a failed download more often and wait longer between tries.
+#  2. android/build.gradle: try Google's public copy of Maven Central first, then Maven Central itself.
+GPROPS="$ANDROID/gradle.properties"
+touch "$GPROPS"
+if ! grep -q "AXON_GRADLE_RETRY" "$GPROPS"; then
+  {
+    echo ""
+    echo "# AXON_GRADLE_RETRY: survive HTTP 429 from Maven Central"
+    echo "systemProp.org.gradle.internal.repository.max.retries=8"
+    echo "systemProp.org.gradle.internal.repository.initial.backoff=3000"
+    echo "systemProp.org.gradle.internal.http.connectionTimeout=60000"
+    echo "systemProp.org.gradle.internal.http.socketTimeout=120000"
+  } >> "$GPROPS"
+  echo "    + added Gradle download retry settings"
+else
+  echo "    = Gradle download retry settings already present"
+fi
+ROOT_GRADLE="$ANDROID/build.gradle"
+if [[ -f "$ROOT_GRADLE" ]]; then
+  if ! grep -q "AXON_CENTRAL_MIRROR" "$ROOT_GRADLE"; then
+    sed -i "s#^\([[:space:]]*\)mavenCentral()#\1maven { url 'https://maven-central.storage-download.googleapis.com/maven2/' } // AXON_CENTRAL_MIRROR\n\1mavenCentral()#" "$ROOT_GRADLE"
+    if grep -q "AXON_CENTRAL_MIRROR" "$ROOT_GRADLE"; then echo "    + added Maven Central mirror before mavenCentral()"; else echo "    = no mavenCentral() line in android/build.gradle; mirror not added (retry settings still apply)"; fi
+  else
+    echo "    = Maven Central mirror already present"
+  fi
+fi
+
 echo "==> Overlay applied successfully."
 echo "Next: npx cap sync android && cd android && ./gradlew assembleDebug"

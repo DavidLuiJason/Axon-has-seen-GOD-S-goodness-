@@ -37,3 +37,8 @@ test('the ML Kit dependency is installed when the picture text reader exists', (
     assert.ok(script.includes('com.google.mlkit:text-recognition'), 'the script lost the ML Kit text-recognition dependency');
   }
 });
+
+test('the script keeps the Gradle 429 protection (retry settings and the Maven Central mirror), builds #30 and #32', () => {
+  assert.ok(script.includes('AXON_GRADLE_RETRY') && script.includes('org.gradle.internal.repository.max.retries'), 'scripts/apply-android-overlay.sh lost the Gradle download retry settings; a Maven Central HTTP 429 will fail the build again');
+  assert.ok(script.includes('AXON_CENTRAL_MIRROR') && script.includes('maven-central.storage-download.googleapis.com'), 'scripts/apply-android-overlay.sh lost the Maven Central mirror line');
+});

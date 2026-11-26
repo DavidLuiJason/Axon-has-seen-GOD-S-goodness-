@@ -3,7 +3,8 @@
 // Agreement counts are the evidence needed before anyone lets CORTEX decide (owner decision, shadow first).
 import { createCortex } from '../cortex/cortex.ts';
 import type { CortexAdvisorySignals, CortexDependencies } from '../cortex/cortex.ts';
-import type { CortexInput, TraceEntry } from '../cortex/cortexTypes.ts';
+import type { CortexInput, TraceEntry, KnowledgeHit, CommitmentReference } from '../cortex/cortexTypes.ts';
+import { signalsFromEvents, type CommitmentSignalEvent } from '../cortex/adapters/cortexA3CommitmentSignals.ts';
 import type { Judgment } from '../judgment/judge.ts';
 
 export type CortexTapInput = {
@@ -14,6 +15,12 @@ export type CortexTapInput = {
   readonly missingText: boolean;
   readonly recheck: 'PASSED' | 'FAILED' | 'UNCLEAR' | 'INCOMPLETE' | 'NONE';
   readonly judgment: Judgment | null;
+  /** CX-A1..A3 feeds, all optional: with none given the tap behaves exactly as before. Still SHADOW: replies never change. */
+  readonly knowledgeHits?: readonly KnowledgeHit[];
+  readonly commitments?: readonly CommitmentReference[];
+  /** Typed owner events only (A3). Turning words into events is a later Meaning-stage job. */
+  readonly ownerEvents?: readonly CommitmentSignalEvent[];
+  readonly adapters?: { readonly apply: (value: CortexInput) => CortexInput };
 };
 export type CortexTap = {
   readonly kind: string;
@@ -34,7 +41,7 @@ function makeDeps(input: CortexTapInput): CortexDependencies {
     const verdict = input.judgment ? input.judgment.verdict : QUIET;
     return { risk: bad ? 'MEDIUM' : 'LOW', resourceFit: 'FIT', actionKind: 'READ', councilFlags: [], judgment: { verdict, flags: [], trace: trace('judge:' + cortexInput.trace.id, 'ORCHESTRATOR_JUDGMENT') }, uncertain: bad };
   };
-  return { maxOptionDepth: 4, advisorySignals };
+  return input.adapters === undefined ? { maxOptionDepth: 4, advisorySignals } : { maxOptionDepth: 4, advisorySignals, adapters: input.adapters };
 }
 
 /** The typed facts of one turn. Every live tool is exact, read-only and admitted (liveAdmission), so it is REVERSIBLE and ALLOWed. */
@@ -43,7 +50,7 @@ export function buildTapInput(input: CortexTapInput): unknown {
   const target = 'result:' + (input.toolId || 'tool');
   const clause = { id: id + ':c1', targetRef: target, meaning: { id: id + ':m1', speechAct: 'REQUEST', conceptRefs: [], slots: [], successTest: { id: id + ':s1', targetRef: target, operator: 'EQUALS', expected: true, trace: trace(id + ':s1t', 'TOOL_RESULT_PRESENT') }, allowedSubgoalRefs: [], trace: trace(id + ':m1t', 'MEANING_FROM_BRAIN') }, trace: trace(id + ':c1t', 'CLAUSE_FROM_BRAIN') };
   const cap = { id: input.toolId || 'tool', clauseRefs: [clause.id], availability: 'AVAILABLE', preconditions: [], effects: [{ kind: 'EFFECT', ref: target, trace: trace(id + ':e1', 'TOOL_EFFECT') }], slots: input.missingText ? [{ id: 'text', required: true, state: 'MISSING', valueRef: null, trace: trace(id + ':sl1', 'TEXT_MISSING') }] : [], reversibility: 'REVERSIBLE', costClass: 'LOW', trace: trace(id + ':cap', 'TOOL_FROM_REGISTRY') };
-  return { objective: { originalRequestId: id, clauses: [clause], trace: trace(id + ':obj', 'OBJECTIVE_FROM_BRAIN') }, constraints: [], candidateCapabilities: [cap], knowledgeHits: [], commitments: [],
+  return { objective: { originalRequestId: id, clauses: [clause], trace: trace(id + ':obj', 'OBJECTIVE_FROM_BRAIN') }, constraints: [], candidateCapabilities: [cap], knowledgeHits: [...(input.knowledgeHits ?? [])], commitments: signalsFromEvents(input.ownerEvents ?? [], { commitments: input.commitments ?? [] }).commitments,
     permissions: [{ capabilityId: cap.id, state: 'ALLOW', trace: trace(id + ':perm', 'LIVE_TOOL_ADMITTED') }], availableFacts: [],
     budget: { stepLimit: 4, timeClass: 'QUICK', tokenLimit: 2000, deviceTier: 'MID', trace: trace(id + ':bud', 'DEFAULT_BUDGET') },
     pendingQuestion: input.missingText ? { id: id + ':q1', clauseId: clause.id, slotId: 'text', optionRefs: [], trace: trace(id + ':q1t', 'TEXT_QUESTION') } : null, trace: trace(id + ':in', 'TURN_INPUT') };
